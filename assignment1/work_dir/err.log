@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "nmt.py", line 458, in <module>
+    main()
+  File "nmt.py", line 450, in main
+    train(args)
+  File "nmt.py", line 285, in train
+    model = NMT(**model_opt)
+TypeError: __init__() got an unexpected keyword argument 'embed_size'
