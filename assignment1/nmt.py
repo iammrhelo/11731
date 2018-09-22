@@ -29,7 +29,10 @@ Options:
     --max-num-trial=<int>                   terminate training after how mtyping.Any trials [default: 5]
     --lr-decay=<float>                      learning rate decay [default: 0.5]
     --beam-size=<int>                       beam size [default: 5]
+    --optimizer=<str>                       optimizer [default: Adam]
     --lr=<float>                            learning rate [default: 0.001]
+    --momentum=<float>                      momentum [default: 0.9]
+    --nesterov                              whether to use nesterov momentum
     --uniform-init=<float>                  uniformly initialize all parameters [default: 0.1]
     --save-to=<file>                        model save path
     --valid-niter=<int>                     perform validation after how mtyping.Any iterations [default: 2000]
@@ -58,7 +61,9 @@ from vocab import Vocab, VocabEntry
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.optim as optim
 from torch import Tensor
+from torch.nn.utils import clip_grad_norm
 
 from models import Encoder, Decoder
 
@@ -187,21 +192,62 @@ class NMT(nn.Module):
                 value: List[str]: the decoded target sentence, represented as a list of words
                 score: float: the log-likelihood of the target sentence
         """
-        stop_id = self.vocab.tgt.words2indices("</s>")
+        start_id = self.vocab.tgt.words2indices(["<s>"])
+        stop_id = self.vocab.tgt.words2indices(["</s>"])
 
         self.eval()
+        with torch.no_grad():
 
-        src_sent_ids = self.vocab.src.words2indices(src_sent)
-        import pdb
-        pdb.set_trace()
+            src_sent_ids = self.vocab.src.words2indices(src_sent)
+            src_tensor = torch.LongTensor(src_sent_ids)
+            src_tensor = src_tensor.view(-1, 1)
 
-        encoder_output, decoder_hidden = self.encode(src_sent)
+            encoder_output, decoder_hidden = self.encoder.forward(src_tensor)
+            decoder_input = torch.LongTensor(start_id).view(1, - 1)
 
-        for step in range(max_decoding_time_step):
-            pass
-        import pdb
-        pdb.set_trace()
+            # tracker: tuples of (indices, score, decoder_hidden)
+            tracker = [([], 0.0, decoder_hidden)]
+            for step in range(max_decoding_time_step):
 
+                previous_tracker = deepcopy(tracker)
+                tracker = []
+                for indices, score, decoder_hidden in previous_tracker:
+                    if len(indices) and indices[-1] == stop_id:
+                        tracker.append((indices, score, decoder_hidden))
+                        continue
+
+                    decoder_output, decoder_hidden = self.decoder.forward(
+                        decoder_input, decoder_hidden)
+                    # Squeeze to 1 dim
+                    decoder_output = decoder_output.squeeze()
+                    decoder_probs = F.softmax(decoder_output, dim=-1)
+                    decoder_log_probs = decoder_probs.log()
+
+                    # Top beam_size candidates
+                    beam_log_probs, beam_word_indices = decoder_log_probs\
+                        .topk(beam_size)
+                    # move to cpu
+                    beam_log_probs = beam_log_probs.numpy()
+                    beam_word_indices = beam_word_indices.numpy()
+
+                    for log_prob, word_id in zip(beam_log_probs, beam_word_indices):
+                        candidate = (indices + [word_id],
+                                     score + log_prob, decoder_hidden)
+                        tracker.append(candidate)
+
+                # Choose among the ones with highest scores
+                tracker = sorted(
+                    tracker, key=lambda c: c[1], reverse=True)[:beam_size]
+
+                # Breaks if encounters </s>
+                if sum(c[0][-1] == stop_id for c in tracker) == beam_size:
+                    break
+
+        # Convert tracker into hypothesis
+        hypotheses = []
+        for word_indices, log_score, _ in tracker:
+            sent = self.vocab.tgt.indices2words(word_indices)
+            hypotheses.append((sent, log_score))
         return hypotheses
 
     def evaluate_ppl(self, dev_data: List[typing.Any], batch_size: int = 32):
@@ -224,16 +270,15 @@ class NMT(nn.Module):
         # you may want to wrap the following code using a context manager provided
         # by the NN library to signal the backend to not to keep gradient information
         # e.g., `torch.no_grad()`
+        with torch.no_grad():
+            for src_sents, tgt_sents in batch_iter(dev_data, batch_size):
+                loss = self.__call__(src_sents, tgt_sents).sum()
+                cum_loss += loss
+                # omitting the leading `<s>`
+                tgt_word_num_to_predict = sum(len(s[1:]) for s in tgt_sents)
+                cum_tgt_words += tgt_word_num_to_predict
 
-        for src_sents, tgt_sents in batch_iter(dev_data, batch_size):
-            loss = -self.__call__(src_sents, tgt_sents).sum()
-
-            cum_loss += loss
-            # omitting the leading `<s>`
-            tgt_word_num_to_predict = sum(len(s[1:]) for s in tgt_sents)
-            cum_tgt_words += tgt_word_num_to_predict
-
-        ppl = np.exp(cum_loss / cum_tgt_words)
+            ppl = np.exp(cum_loss / cum_tgt_words)
 
         return ppl
 
@@ -287,6 +332,10 @@ def train(args: Dict[str, str]):
 
     train_batch_size = int(args['--batch-size'])
     clip_grad = float(args['--clip-grad'])
+    optimizer = args['--optimizer']
+    lr = float(args['--lr'])
+    momentum = float(args['--momentum'])
+    nesterov = bool(args['--nesterov'])
     valid_niter = int(args['--valid-niter'])
     log_every = int(args['--log-every'])
     model_save_path = args['--save-to']
@@ -302,8 +351,15 @@ def train(args: Dict[str, str]):
         "vocab": vocab,
         "use_cuda": bool(args["--cuda"])
     }
-
     model = NMT(model_opt)
+
+    if optimizer == "SGD":
+        optimizer = optim.SGD(model.parameters(), lr,
+                              momentum, nesterov=nesterov)
+    elif optimizer == "Adam":
+        optimizer = optim.Adam(model.parameters(), lr=lr)
+    else:
+        raise ValueError("Unknown optimizer: {}".format(optimizer))
 
     num_trial = 0
     train_iter = patience = cum_loss = report_loss = cumulative_tgt_words = report_tgt_words = 0
@@ -320,9 +376,15 @@ def train(args: Dict[str, str]):
 
             batch_size = len(src_sents)
 
+            optimizer.zero_grad()
             # (batch_size)
             scores = model(src_sents, tgt_sents)
             loss = scores.sum()
+
+            # Optimizer here
+            loss.backward()
+            clip_grad_norm(model.parameters(), clip_grad)
+            optimizer.step()
 
             report_loss += loss
             cum_loss += loss
