@@ -96,6 +96,9 @@ class NMT(nn.Module):
         # Evaluation
         self.criterion = nn.CrossEntropyLoss(
             ignore_index=self.vocab.tgt.pad_id, reduction="none")
+		
+        if self.use_cuda:
+            self.cuda()
 
     def sents2tensor(self, sents: List[List[str]], vocab: typing.Any) -> Tensor:
         """
@@ -233,8 +236,12 @@ class NMT(nn.Module):
                     beam_log_probs, beam_word_indices = decoder_log_probs\
                         .topk(beam_size)
                     # move to cpu
-                    beam_log_probs = beam_log_probs.numpy()
-                    beam_word_indices = beam_word_indices.numpy()
+                    if self.use_cuda:
+                        beam_log_probs = beam_log_probs.cpu().numpy()
+                        beam_word_indices = beam_word_indices.cpu().numpy()
+                    else:
+                        beam_log_probs = beam_log_probs.numpy()
+                        beam_word_indices = beam_word_indices.numpy()
 
                     for log_prob, word_id in zip(beam_log_probs, beam_word_indices):
                         candidate = (indices + [word_id],
@@ -253,7 +260,8 @@ class NMT(nn.Module):
         hypotheses = []
         for word_indices, log_score, _ in tracker:
             sent = self.vocab.tgt.indices2words(word_indices)
-            hypotheses.append((sent, log_score))
+            hyp = Hypothesis(value=sent, score=log_score)
+            hypotheses.append(hyp)
         return hypotheses
 
     def evaluate_ppl(self, dev_data: List[typing.Any], batch_size: int = 32):
@@ -391,9 +399,13 @@ def train(args: Dict[str, str]):
             loss.backward()
             clip_grad_norm(model.parameters(), clip_grad)
             optimizer.step()
-
-            report_loss += loss
-            cum_loss += loss
+            
+            if model.use_cuda:
+                report_loss += loss.data.cpu().numpy()
+                cum_loss += loss.data.cpu().numpy()
+            else:
+                report_loss += loss.data.numpy()
+                cum_loss += loss.data.numpy()
 
             tgt_words_num_to_predict = sum(
                 len(s[1:]) for s in tgt_sents)  # omitting leading `<s>`
@@ -468,12 +480,14 @@ def train(args: Dict[str, str]):
 
                         # decay learning rate, and restore from previously best checkpoint
                         lr = lr * float(args['--lr-decay'])
+                        for param_group in optimizer.param_groups:
+                            param_group['lr'] = lr
                         print(
                             'load previously best model and decay learning rate to %f' % lr, file=sys.stderr)
 
-                        # load model
-                        model_save_path
 
+                        # load model
+                        model = NMT.load(model_save_path)
                         print('restore parameters of the optimizers',
                               file=sys.stderr)
                         # You may also need to load the state of the optimizer saved before
