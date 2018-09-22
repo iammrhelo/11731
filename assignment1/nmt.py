@@ -108,6 +108,8 @@ class NMT(nn.Module):
         sent_ids = [vocab.words2indices(sent) for sent in sents]
         transposed_ids = input_transpose(sent_ids, vocab.pad_id)
         sents_tensor = torch.LongTensor(transposed_ids)
+        if self.use_cuda:
+            sents_tensor = sents_tensor.cuda()
         return sents_tensor
 
     def __call__(self, src_sents: List[List[str]], tgt_sents: List[List[str]]) -> Tensor:
@@ -200,10 +202,14 @@ class NMT(nn.Module):
 
             src_sent_ids = self.vocab.src.words2indices(src_sent)
             src_tensor = torch.LongTensor(src_sent_ids)
+            if self.use_cuda:
+                src_tensor = src_tensor.cuda()
             src_tensor = src_tensor.view(-1, 1)
 
             encoder_output, decoder_hidden = self.encoder.forward(src_tensor)
             decoder_input = torch.LongTensor(start_id).view(1, - 1)
+            if self.use_cuda:
+                decoder_input = decoder_input.cuda()
 
             # tracker: tuples of (indices, score, decoder_hidden)
             tracker = [([], 0.0, decoder_hidden)]
