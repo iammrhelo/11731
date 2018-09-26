@@ -21,7 +21,8 @@ python nmt.py \
     --train-tgt ${train_tgt} \
     --dev-src ${dev_src} \
     --dev-tgt ${dev_tgt} \
-    --save-to ${work_dir}/model.bin \
+    --save-to ${work_dir} \
+    --num-layers 2 \
     --valid-niter 2400 \
     --batch-size 64 \
     --hidden-size 256 \
@@ -29,5 +30,7 @@ python nmt.py \
     --uniform-init 0.1 \
     --dropout 0.2 \
     --clip-grad 5.0 \
-    --lr-decay 0.5 2>${work_dir}/err.log
+    --lr-decay 0.5 
+
+#>${work_dir}/err.log
 

@@ -7,6 +7,8 @@ dev_src="data/valid.de-en.de"
 dev_tgt="data/valid.de-en.en"
 test_src="data/test.de-en.de"
 test_tgt="data/test.de-en.en"
+#test_src=$train_src
+#test_tgt=$train_tgt
 
 work_dir="work_dir"
 
@@ -17,7 +19,7 @@ python nmt.py \
     decode \
     --cuda \
     --beam-size 5 \
-    --max-decoding-time-step 100 \
+    --max-decoding-time-step 50 \
     ${work_dir}/model.bin \
     ${test_src} \
     ${work_dir}/decode.txt

@@ -41,6 +41,7 @@ Options:
 """
 
 import math
+import os
 import pickle
 import sys
 import time
@@ -63,7 +64,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch import Tensor
-from torch.nn.utils import clip_grad_norm
+from torch.nn.utils import clip_grad_norm_
 
 from models import Encoder, Decoder
 
@@ -305,6 +306,8 @@ class NMT(nn.Module):
             model: the loaded model
         """
         model = torch.load(model_path)
+        model.encoder.rnn.flatten_parameters()
+        model.decoder.rnn.flatten_parameters()
         return model
 
     def save(self, path: str):
@@ -352,7 +355,9 @@ def train(args: Dict[str, str]):
     nesterov = bool(args['--nesterov'])
     valid_niter = int(args['--valid-niter'])
     log_every = int(args['--log-every'])
-    model_save_path = args['--save-to']
+    work_dir = args['--save-to']
+    model_save_path = os.path.join(work_dir, 'model.bin')
+    optim_save_path = os.path.join(work_dir, 'optim.bin') 
 
     vocab = pickle.load(open(args['--vocab'], 'rb'))
 
@@ -397,7 +402,7 @@ def train(args: Dict[str, str]):
 
             # Optimizer here
             loss.backward()
-            clip_grad_norm(model.parameters(), clip_grad)
+            clip_grad_norm_(model.parameters(), clip_grad)
             optimizer.step()
             
             if model.use_cuda:
@@ -467,6 +472,7 @@ def train(args: Dict[str, str]):
                     model.save(model_save_path)
 
                     # You may also save the optimizer's state
+                    torch.save(optimizer, optim_save_path)
                 elif patience < int(args['--patience']):
                     patience += 1
                     print('hit patience %d' % patience, file=sys.stderr)
@@ -480,8 +486,6 @@ def train(args: Dict[str, str]):
 
                         # decay learning rate, and restore from previously best checkpoint
                         lr = lr * float(args['--lr-decay'])
-                        for param_group in optimizer.param_groups:
-                            param_group['lr'] = lr
                         print(
                             'load previously best model and decay learning rate to %f' % lr, file=sys.stderr)
 
@@ -491,6 +495,9 @@ def train(args: Dict[str, str]):
                         print('restore parameters of the optimizers',
                               file=sys.stderr)
                         # You may also need to load the state of the optimizer saved before
+                        optimizer = torch.load(optim_save_path)     
+                        for param_group in optimizer.param_groups:
+                            param_group['lr'] = lr
 
                         # reset patience
                         patience = 0
@@ -504,11 +511,13 @@ def beam_search(model: NMT, test_data_src: List[List[str]], beam_size: int, max_
     was_training = model.training
 
     hypotheses = []
-    for src_sent in tqdm(test_data_src, desc='Decoding', file=sys.stdout):
-        example_hyps = model.beam_search(
-            src_sent, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step)
-
-        hypotheses.append(example_hyps)
+    try:
+        for src_sent in tqdm(test_data_src, desc='Decoding', file=sys.stdout):
+            example_hyps = model.beam_search(
+                src_sent, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step)
+            hypotheses.append(example_hyps)
+    except KeyboardInterrupt:
+        print("Keyboard interrupted!")
 
     return hypotheses
 
