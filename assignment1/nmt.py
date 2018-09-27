@@ -67,7 +67,7 @@ import torch.optim as optim
 from torch import Tensor
 from torch.nn.utils import clip_grad_norm_
 
-from models import Encoder, Decoder, Attention
+from models import Encoder, Decoder, LuongDecoder
 
 Hypothesis = namedtuple('Hypothesis', ['value', 'score'])
 
@@ -93,7 +93,7 @@ class NMT(nn.Module):
         self.encoder = Encoder(encoder_opt)
         decoder_opt = deepcopy(opt)
         decoder_opt["num_embeddings"] = len(self.vocab.tgt)
-        self.decoder = Decoder(decoder_opt)
+        self.decoder = LuongDecoder(decoder_opt)
 
         # Evaluation
         self.criterion = nn.CrossEntropyLoss(
@@ -191,7 +191,7 @@ class NMT(nn.Module):
 
         for _ in range(length-1):
             decoder_pred, decoder_hidden = self.decoder.forward(
-                decoder_input, decoder_hidden)
+                decoder_input, decoder_hidden, src_encodings)
             # Get previous maximum
             _, decoder_input = decoder_pred.max(dim=-1)
             decoder_preds.append(decoder_pred)
