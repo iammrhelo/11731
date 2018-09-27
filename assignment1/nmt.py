@@ -66,7 +66,7 @@ import torch.optim as optim
 from torch import Tensor
 from torch.nn.utils import clip_grad_norm_
 
-from models import Encoder, Decoder
+from models import Encoder, Decoder, Attention
 
 Hypothesis = namedtuple('Hypothesis', ['value', 'score'])
 
@@ -86,7 +86,7 @@ class NMT(nn.Module):
         self.vocab = opt["vocab"]
         self.use_cuda = opt["use_cuda"]
 
-        # Build Encoder and Decoder
+        # Build Encoder, Decoder, and Attention
         encoder_opt = deepcopy(opt)
         encoder_opt["num_embeddings"] = len(self.vocab.src)
         self.encoder = Encoder(encoder_opt)
@@ -97,7 +97,7 @@ class NMT(nn.Module):
         # Evaluation
         self.criterion = nn.CrossEntropyLoss(
             ignore_index=self.vocab.tgt.pad_id, reduction="none")
-		
+
         if self.use_cuda:
             self.cuda()
 
@@ -148,7 +148,7 @@ class NMT(nn.Module):
                 with shape (batch_size, source_sentence_length, encoding_dim), or in other formats
             decoder_init_state: decoder GRU/LSTM's initial state, computed from source encodings
         """
-        # Convert words to tensor input
+        # Convert words to tensor input =
         input_tensor = self.sents2tensor(src_sents, self.vocab.src)
 
         # (length, batch_size, dim)
@@ -170,13 +170,25 @@ class NMT(nn.Module):
                 log-likelihood of generating the gold-standard target sentence for
                 each example in the input batch
         """
-        # Target to tensor
+        # tgt_sents 2 tensor
+        # (length, batch_size)
         tgt_tensor = self.sents2tensor(tgt_sents, self.vocab.tgt)
-
+        length, _ = tgt_tensor.shape
         # Here we feed in the target output for log-likelihood prediction
         # (length, batch_size, classes)
-        decoder_pred, _ = self.decoder.forward(
-            tgt_tensor[:-1], decoder_init_state)
+
+        decoder_preds = []
+        decoder_input = tgt_tensor[:1]  # <s>
+        decoder_hidden = decoder_init_state
+
+        for _ in range(length-1):
+            decoder_pred, decoder_hidden = self.decoder.forward(
+                decoder_input, decoder_hidden)
+            # Get previous maximum
+            _, decoder_input = decoder_pred.max(dim=-1)
+            decoder_preds.append(decoder_pred)
+
+        decoder_pred = torch.cat(decoder_preds)
         # (length, batch_size )
         decoder_true = tgt_tensor[1:]
         loss = self.criterion(decoder_pred.permute(
@@ -210,6 +222,7 @@ class NMT(nn.Module):
                 src_tensor = src_tensor.cuda()
             src_tensor = src_tensor.view(-1, 1)
 
+            # Will use if attention is provided
             encoder_output, decoder_hidden = self.encoder.forward(src_tensor)
             decoder_input = torch.LongTensor(start_id).view(1, - 1)
             if self.use_cuda:
@@ -357,7 +370,7 @@ def train(args: Dict[str, str]):
     log_every = int(args['--log-every'])
     work_dir = args['--save-to']
     model_save_path = os.path.join(work_dir, 'model.bin')
-    optim_save_path = os.path.join(work_dir, 'optim.bin') 
+    optim_save_path = os.path.join(work_dir, 'optim.bin')
 
     vocab = pickle.load(open(args['--vocab'], 'rb'))
 
@@ -370,6 +383,9 @@ def train(args: Dict[str, str]):
         "vocab": vocab,
         "use_cuda": bool(args["--cuda"])
     }
+    if not torch.cuda.is_available():
+        model_opt["use_cuda"] = False
+
     model = NMT(model_opt)
 
     if optimizer == "SGD":
@@ -404,7 +420,7 @@ def train(args: Dict[str, str]):
             loss.backward()
             clip_grad_norm_(model.parameters(), clip_grad)
             optimizer.step()
-            
+
             if model.use_cuda:
                 report_loss += loss.data.cpu().numpy()
                 cum_loss += loss.data.cpu().numpy()
@@ -489,13 +505,12 @@ def train(args: Dict[str, str]):
                         print(
                             'load previously best model and decay learning rate to %f' % lr, file=sys.stderr)
 
-
                         # load model
                         model = NMT.load(model_save_path)
                         print('restore parameters of the optimizers',
                               file=sys.stderr)
                         # You may also need to load the state of the optimizer saved before
-                        optimizer = torch.load(optim_save_path)     
+                        optimizer = torch.load(optim_save_path)
                         for param_group in optimizer.param_groups:
                             param_group['lr'] = lr
 
