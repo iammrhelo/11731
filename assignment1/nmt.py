@@ -61,6 +61,7 @@ from vocab import Vocab, VocabEntry
 # PyTorch
 import torch
 import torch.nn as nn
+import torch.nn.init as init
 import torch.nn.functional as F
 import torch.optim as optim
 from torch import Tensor
@@ -100,6 +101,13 @@ class NMT(nn.Module):
 
         if self.use_cuda:
             self.cuda()
+
+    def init_weights(self, uniform_weight=0.1):
+        """
+        Initialize weights for all modules
+        """
+        for param in self.parameters():
+            init.constant_(param, uniform_weight)
 
     def sents2tensor(self, sents: List[List[str]], vocab: typing.Any) -> Tensor:
         """
@@ -364,6 +372,7 @@ def train(args: Dict[str, str]):
     clip_grad = float(args['--clip-grad'])
     optimizer = args['--optimizer']
     lr = float(args['--lr'])
+    uniform_init = float(args["--uniform-init"])
     momentum = float(args['--momentum'])
     nesterov = bool(args['--nesterov'])
     valid_niter = int(args['--valid-niter'])
@@ -387,6 +396,7 @@ def train(args: Dict[str, str]):
         model_opt["use_cuda"] = False
 
     model = NMT(model_opt)
+    model.init_weights(uniform_init)
 
     if optimizer == "SGD":
         optimizer = optim.SGD(model.parameters(), lr,
