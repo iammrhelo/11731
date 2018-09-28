@@ -66,8 +66,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch import Tensor
 from torch.nn.utils import clip_grad_norm_
-
-from models import Encoder, Decoder, LuongDecoder
+from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
+from models import Encoder, Decoder
 
 Hypothesis = namedtuple('Hypothesis', ['value', 'score'])
 
@@ -93,7 +93,7 @@ class NMT(nn.Module):
         self.encoder = Encoder(encoder_opt)
         decoder_opt = deepcopy(opt)
         decoder_opt["num_embeddings"] = len(self.vocab.tgt)
-        self.decoder = LuongDecoder(decoder_opt)
+        self.decoder = Decoder(decoder_opt)
 
         # Evaluation
         self.criterion = nn.CrossEntropyLoss(
@@ -139,7 +139,6 @@ class NMT(nn.Module):
                 each example in the input batch
         """
         # Train mode
-        self.train()
         src_encodings, decoder_init_state = self.encode(src_sents)
         scores = self.decode(src_encodings, decoder_init_state, tgt_sents)
         return scores
@@ -156,7 +155,7 @@ class NMT(nn.Module):
                 with shape (batch_size, source_sentence_length, encoding_dim), or in other formats
             decoder_init_state: decoder GRU/LSTM's initial state, computed from source encodings
         """
-        # Convert words to tensor input =
+        # Convert words to tensor
         input_tensor = self.sents2tensor(src_sents, self.vocab.src)
 
         # (length, batch_size, dim)
@@ -181,22 +180,14 @@ class NMT(nn.Module):
         # tgt_sents 2 tensor
         # (length, batch_size)
         tgt_tensor = self.sents2tensor(tgt_sents, self.vocab.tgt)
-        length, _ = tgt_tensor.shape
         # Here we feed in the target output for log-likelihood prediction
         # (length, batch_size, classes)
-
-        decoder_preds = []
-        decoder_input = tgt_tensor[:1]  # <s>
         decoder_hidden = decoder_init_state
 
-        for _ in range(length-1):
-            decoder_pred, decoder_hidden = self.decoder.forward(
-                decoder_input, decoder_hidden, src_encodings)
-            # Get previous maximum
-            _, decoder_input = decoder_pred.max(dim=-1)
-            decoder_preds.append(decoder_pred)
+        decoder_input = tgt_tensor[:-1]
 
-        decoder_pred = torch.cat(decoder_preds)
+        decoder_pred, _ = self.decoder.forward(decoder_input, decoder_hidden)
+
         # (length, batch_size )
         decoder_true = tgt_tensor[1:]
         loss = self.criterion(decoder_pred.permute(
@@ -221,7 +212,6 @@ class NMT(nn.Module):
         start_id = self.vocab.tgt.words2indices(["<s>"])
         stop_id = self.vocab.tgt.words2indices(["</s>"])
 
-        self.eval()
         with torch.no_grad():
 
             src_sent_ids = self.vocab.src.words2indices(src_sent)
@@ -243,6 +233,7 @@ class NMT(nn.Module):
                 previous_tracker = deepcopy(tracker)
                 tracker = []
                 for indices, score, decoder_hidden in previous_tracker:
+
                     if len(indices) and indices[-1] == stop_id:
                         tracker.append((indices, score, decoder_hidden))
                         continue
@@ -298,8 +289,6 @@ class NMT(nn.Module):
             ppl: the perplexity on dev sentences
         """
         # Evaluation mode
-        self.eval()
-
         cum_loss = 0.
         cum_tgt_words = 0.
 
@@ -417,6 +406,7 @@ def train(args: Dict[str, str]):
         epoch += 1
 
         for src_sents, tgt_sents in batch_iter(train_data, batch_size=train_batch_size, shuffle=True):
+            model.train()
             train_iter += 1
 
             batch_size = len(src_sents)
@@ -478,7 +468,7 @@ def train(args: Dict[str, str]):
                 valid_num += 1
 
                 print('begin validation ...', file=sys.stderr)
-
+                model.eval()
                 # compute dev. ppl and bleu
                 # dev batch size can be a bit larger
                 dev_ppl = model.evaluate_ppl(dev_data, batch_size=128)
@@ -559,7 +549,7 @@ def decode(args: Dict[str, str]):
 
     print(f"load model from {args['MODEL_PATH']}", file=sys.stderr)
     model = NMT.load(args['MODEL_PATH'])
-
+    model.eval()
     hypotheses = beam_search(model, test_data_src,
                              beam_size=int(args['--beam-size']),
                              max_decoding_time_step=int(args['--max-decoding-time-step']))
