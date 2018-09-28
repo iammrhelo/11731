@@ -148,7 +148,7 @@ class NMT(nn.Module):
         Use a GRU/LSTM to encode source sentences into hidden states
 
         Args:
-            src_sents: list of source sentence tokens
+            src_sents: list of source sentence tokens, already sorted in decreasing order by length
 
         Returns:
             src_encodings: hidden states of tokens in source sentences, this could be a variable
@@ -156,10 +156,12 @@ class NMT(nn.Module):
             decoder_init_state: decoder GRU/LSTM's initial state, computed from source encodings
         """
         # Convert words to tensor
-        input_tensor = self.sents2tensor(src_sents, self.vocab.src)
+        src_tensor = self.sents2tensor(src_sents, self.vocab.src)
+        src_lengths = (src_tensor != self.vocab.src.pad_id).sum(dim=0)
 
         # (length, batch_size, dim)
-        encoder_output, encoder_hidden = self.encoder.forward(input_tensor)
+        encoder_output, encoder_hidden = self.encoder.forward(
+            src_tensor, src_lengths)
         return encoder_output, encoder_hidden
 
     def decode(self, src_encodings: Tensor, decoder_init_state: typing.Any, tgt_sents: List[List[str]]) -> Tensor:
@@ -218,10 +220,13 @@ class NMT(nn.Module):
             src_tensor = torch.LongTensor(src_sent_ids)
             if self.use_cuda:
                 src_tensor = src_tensor.cuda()
+            # (length, batch_size )
             src_tensor = src_tensor.view(-1, 1)
+            src_lengths = (src_tensor != self.vocab.src.pad_id).sum(dim=0)
 
             # Will use if attention is provided
-            encoder_output, decoder_hidden = self.encoder.forward(src_tensor)
+            encoder_output, decoder_hidden = self.encoder.forward(
+                src_tensor, src_lengths)
             decoder_input = torch.LongTensor(start_id).view(1, - 1)
             if self.use_cuda:
                 decoder_input = decoder_input.cuda()
@@ -233,7 +238,6 @@ class NMT(nn.Module):
                 previous_tracker = deepcopy(tracker)
                 tracker = []
                 for indices, score, decoder_hidden in previous_tracker:
-
                     if len(indices) and indices[-1] == stop_id:
                         tracker.append((indices, score, decoder_hidden))
                         continue

@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 
 class Encoder(nn.Module):
@@ -23,9 +24,11 @@ class Encoder(nn.Module):
         self.rnn = nn.LSTM(self.embed_size, self.hidden_size, self.num_layers,
                            dropout=self.dropout_rate, bidirectional=self.bidirectional)
 
-    def forward(self, x, hidden=None):
+    def forward(self, x, lengths, hidden=None):
         embed_x = self.embed(x)
-        output, hidden = self.rnn(embed_x, hidden)
+        packed_embed_x = pack_padded_sequence(embed_x, lengths)
+        packed_output, hidden = self.rnn(packed_embed_x, hidden)
+        output, _ = pad_packed_sequence(packed_output)
         return output, hidden
 
 
