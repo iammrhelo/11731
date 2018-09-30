@@ -31,8 +31,7 @@ Options:
     --beam-size=<int>                       beam size [default: 5]
     --optimizer=<str>                       optimizer [default: Adam]
     --lr=<float>                            learning rate [default: 0.001]
-    --momentum=<float>                      momentum [default: 0.9]
-    --nesterov                              whether to use nesterov momentum
+
     --uniform-init=<float>                  uniformly initialize all parameters [default: 0.1]
     --save-to=<file>                        model save path
     --valid-niter=<int>                     perform validation after how mtyping.Any iterations [default: 2000]
@@ -68,7 +67,7 @@ import torch.optim as optim
 from torch import Tensor
 from torch.nn.utils import clip_grad_norm_
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
-from models import Encoder, LuongDecoder
+from models import Encoder, LuongDecoder, GlobalAttention
 
 Hypothesis = namedtuple('Hypothesis', ['value', 'score'])
 
@@ -93,12 +92,15 @@ class NMT(nn.Module):
         encoder_opt["num_embeddings"] = len(self.vocab.src)
         self.encoder = Encoder(encoder_opt)
 
-        encoder_hidden_size = int(self.bidirectional+1) * self.hidden_size
+        encoder_hidden_size = (int(self.bidirectional)+1) * self.hidden_size
+
+        attn_opt = {"input_size": encoder_hidden_size +
+                    self.hidden_size, "output_size": self.hidden_size}
+        attn = GlobalAttention(attn_opt)
 
         decoder_opt = deepcopy(opt)
         decoder_opt["num_embeddings"] = len(self.vocab.tgt)
-        decoder_opt["hidden_size"] = encoder_hidden_size
-        self.decoder = LuongDecoder(decoder_opt)
+        self.decoder = LuongDecoder(decoder_opt, attn)
 
         # Evaluation
         self.criterion = nn.CrossEntropyLoss(
@@ -165,8 +167,7 @@ class NMT(nn.Module):
         src_lengths = (src_tensor != self.vocab.src.pad_id).sum(dim=0)
 
         # (length, batch_size, dim)
-        encoder_output, encoder_hidden = self.encoder.forward(
-            src_tensor, src_lengths)
+        encoder_output, encoder_hidden = self.encoder(src_tensor, src_lengths)
         return encoder_output, encoder_hidden
 
     def decode(self, src_encodings: Tensor, decoder_init_state: typing.Any, tgt_sents: List[List[str]]) -> Tensor:
@@ -403,8 +404,6 @@ def train(args: Dict[str, str]):
     optimizer = args['--optimizer']
     lr = float(args['--lr'])
     uniform_init = float(args["--uniform-init"])
-    momentum = float(args['--momentum'])
-    nesterov = bool(args['--nesterov'])
     valid_niter = int(args['--valid-niter'])
     log_every = int(args['--log-every'])
     work_dir = args['--save-to']
@@ -432,8 +431,7 @@ def train(args: Dict[str, str]):
         model = NMT.load(args["--model-path"])
 
     if optimizer == "SGD":
-        optimizer = optim.SGD(model.parameters(), lr,
-                              momentum, nesterov=nesterov)
+        optimizer = optim.SGD(model.parameters(), lr=lr)
     elif optimizer == "Adam":
         optimizer = optim.Adam(model.parameters(), lr=lr)
     else:
