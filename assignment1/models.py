@@ -159,13 +159,12 @@ class GlobalAttention(nn.Module):
 
         # First we formulate into 4D array
         # (src_length, tgt_length, batch_size, hidden_size)
+        expand_ht = h_t.expand(src_length, -1, -1, -1)
+        expand_src_encodings = src_encodings.expand(
+            tgt_length, -1, -1, -1).permute(1, 0, 2, 3)
 
-        repeat_ht = h_t.repeat(src_length, 1, 1, 1)
-        repeat_src_encodings = src_encodings.unsqueeze(
-            1).repeat(1, tgt_length, 1, 1)
-
-        concat_hidden = torch.cat([repeat_ht, repeat_src_encodings], dim=-1)
+        concat_hidden = torch.cat([expand_ht, expand_src_encodings], dim=-1)
         scores = self.Va(torch.tanh(self.Wa(concat_hidden)))
         attn_weights = F.softmax(scores, dim=0)
-        context = (attn_weights * repeat_src_encodings).sum(dim=0)
+        context = (attn_weights * expand_src_encodings).sum(dim=0)
         return context
