@@ -114,7 +114,7 @@ class LuongDecoder(nn.Module):
         """
         Args:
             x: decoder input (length, batch_size)
-            decoder_hidden : decoder hidden state 
+            decoder_hidden : decoder hidden state
             src_encodings : encoder states (src_length, batch_size, hidden_size)
             tgt : target output tensor (length, batch_size)
         """
@@ -124,36 +124,20 @@ class LuongDecoder(nn.Module):
             tgt_length, _ = tgt.shape
 
         # Feed ground truth for now
-        output_list = []
-        for step in range(tgt_length):
-            step_input = x[step:step+1]
-            step_output, hidden = self.forward_step(
-                step_input, hidden, src_encodings)
-            output_list.append(step_output)
-
-        output = torch.cat(output_list)
-
-        return output, hidden
-
-    def forward_step(self, x, hidden=None, src_encodings=None):
-        """
-        Perform a single step of the decoder
-        Length dimension should be 1
-        Args:
-            x:              step input (1, batch_size)
-            hidden:         decoder hidden
-            src_encodings:  hidden states from encoder            
-        """
         embed_x = self.embed(x)
-        rnn_output, hidden = self.rnn(embed_x, hidden)
+        # rnn_output: (tgt_length, batch_size, hidden_size)
+        rnn_output, hidden = self.rnn.forward(embed_x, hidden)
 
-        # Compute context vector
+        # attn_weights: (src_length, tgt_length, batch_size, hidden_size)
+        # src_encodings: (src_length, batch_size, hidden_size)
         attn_weights = self.attn.forward(rnn_output, src_encodings)
-        context = (attn_weights * src_encodings).sum(dim=0).unsqueeze(0)
 
-        # Predict final output
+        # context: tgt_length, batch_size, hidden_size
+        context = (attn_weights * src_encodings.unsqueeze(dim=1)).sum(dim=0)
         hidden_plus_context = torch.cat([context, rnn_output], dim=-1)
+
         output = self.h2o(hidden_plus_context)
+
         return output, hidden
 
 
@@ -173,17 +157,29 @@ class ConcatAttention(nn.Module):
     def forward(self, h_t, src_encodings):
         """
         Args:
-            h_t : (lenght, batch_size, hidden_size)
+            h_t : (length, batch_size, hidden_size)
             src_encodings : (src_length, batch_size, hidden_size)
         Returns:
-            attn_weights: (src_length, batch_size ) 
+            attn_weights: (src_length, batch_size, 1)
         """
         src_length, _, _ = src_encodings.shape
-        #tgt_length, _, _ = h_t.shape
+        tgt_length, _, _ = h_t.shape
 
+        # First we formulate into 4D array
+        # (src_length, tgt_length, batch_size, hidden_size)
+
+        repeat_ht = h_t.repeat(src_length, 1, 1, 1)
+        repeat_src_encodings = src_encodings.unsqueeze(
+            1).repeat(1, tgt_length, 1, 1)
+
+        concat_hidden = torch.cat([repeat_ht, repeat_src_encodings], dim=-1)
+        scores = self.Va(torch.tanh(self.Wa(concat_hidden)))
+        attn_weights = F.softmax(scores, dim=0)
+        """
         repeat_ht = h_t.repeat(src_length, 1, 1)
         concat_hidden = torch.cat([repeat_ht, src_encodings], dim=-1)
         # (tgt_length, src_length, batch_size, hidden_size )
         scores = self.Va(torch.tanh(self.Wa(concat_hidden)))
         attn_weights = F.softmax(scores, dim=0)
+        """
         return attn_weights
