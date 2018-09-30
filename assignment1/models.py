@@ -36,7 +36,7 @@ class Encoder(nn.Module):
         if self.bidirectional:
             # Handle bidirectional stuff here
             def concat_op(h):
-                return torch.cat([h[:1], h[1:2]], dim=-1)
+                return torch.cat([h[0:h.size(0):2], h[1:h.size(0):2]], 2)
 
             hidden = tuple(map(concat_op, hidden))
         return output, hidden
