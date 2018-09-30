@@ -38,6 +38,7 @@ Options:
     --valid-niter=<int>                     perform validation after how mtyping.Any iterations [default: 2000]
     --dropout=<float>                       dropout [default: 0.2]
     --max-decoding-time-step=<int>          maximum number of decoding time steps [default: 70]
+    --model-path=<file>                     path to model file
 """
 
 import math
@@ -93,7 +94,8 @@ class NMT(nn.Module):
         self.encoder = Encoder(encoder_opt)
         decoder_opt = deepcopy(opt)
         decoder_opt["num_embeddings"] = len(self.vocab.tgt)
-        self.decoder = LuongDecoder(decoder_opt)
+        # self.decoder = LuongDecoder(decoder_opt)
+        self.decoder = Decoder(decoder_opt)
 
         # Evaluation
         self.criterion = nn.CrossEntropyLoss(
@@ -108,21 +110,6 @@ class NMT(nn.Module):
         """
         for param in self.parameters():
             init.constant_(param, uniform_weight)
-
-    def sents2tensor(self, sents: List[List[str]], vocab: typing.Any) -> Tensor:
-        """
-        Takes a mini-batch of sentences, convert into LongTensor
-        Args:
-            sents : list of sentence tokens
-        Returns:
-            sents tensor: padded sents tensor
-        """
-        sent_ids = [vocab.words2indices(sent) for sent in sents]
-        transposed_ids = input_transpose(sent_ids, vocab.pad_id)
-        sents_tensor = torch.LongTensor(transposed_ids)
-        if self.use_cuda:
-            sents_tensor = sents_tensor.cuda()
-        return sents_tensor
 
     def __call__(self, src_sents: List[List[str]], tgt_sents: List[List[str]]) -> Tensor:
         """
@@ -142,6 +129,21 @@ class NMT(nn.Module):
         src_encodings, decoder_init_state = self.encode(src_sents)
         scores = self.decode(src_encodings, decoder_init_state, tgt_sents)
         return scores
+
+    def sents2tensor(self, sents: List[List[str]], vocab: typing.Any) -> Tensor:
+        """
+        Takes a mini-batch of sentences, convert into LongTensor
+        Args:
+            sents : list of sentence tokens
+        Returns:
+            sents_tensor: padded sents tensor with shape(length, batch_size)
+        """
+        sent_ids = [vocab.words2indices(sent) for sent in sents]
+        transposed_ids = input_transpose(sent_ids, vocab.pad_id)
+        sents_tensor = torch.LongTensor(transposed_ids)
+        if self.use_cuda:
+            sents_tensor = sents_tensor.cuda()
+        return sents_tensor
 
     def encode(self, src_sents: List[List[str]]) -> Tuple[Tensor, typing.Any]:
         """
@@ -187,14 +189,21 @@ class NMT(nn.Module):
         decoder_hidden = decoder_init_state
 
         decoder_input = tgt_tensor[:-1]
-
-        decoder_pred, _ = self.decoder.forward(decoder_input, decoder_hidden, src_encodings)
-
-        # (length, batch_size )
         decoder_true = tgt_tensor[1:]
-        loss = self.criterion(decoder_pred.permute(
-            1, 2, 0), decoder_true.permute(1, 0))
-        scores = loss.sum(dim=1)
+
+        decoder_pred, _ = self.decoder.forward(
+            decoder_input, decoder_hidden, src_encodings, decoder_true)
+
+        # Permute for loss calculation
+        # (batch_size, classes, length)
+        decoder_pred = decoder_pred.permute(1, 2, 0)
+        # (batch_size, length)
+        decoder_true = decoder_true.permute(1, 0)
+
+        # (batch_size, length)
+        loss = self.criterion(decoder_pred, decoder_true)
+
+        scores = loss.sum(dim=1)  # sum over length
         return scores
 
     def beam_search(self, src_sent: List[str], beam_size: int = 5, max_decoding_time_step: int = 70) -> List[Hypothesis]:
@@ -211,72 +220,97 @@ class NMT(nn.Module):
                 value: List[str]: the decoded target sentence, represented as a list of words
                 score: float: the log-likelihood of the target sentence
         """
-        start_id = self.vocab.tgt.words2indices(["<s>"])
-        stop_id = self.vocab.tgt.words2indices(["</s>"])
+        start_id = self.vocab.tgt["<s>"]
+        stop_id = self.vocab.tgt["</s>"]
 
         with torch.no_grad():
-
-            src_sent_ids = self.vocab.src.words2indices(src_sent)
-            src_tensor = torch.LongTensor(src_sent_ids)
-            if self.use_cuda:
-                src_tensor = src_tensor.cuda()
-            # (length, batch_size )
-            src_tensor = src_tensor.view(-1, 1)
+            # (length, 1)
+            src_tensor = self.sents2tensor([src_sent], self.vocab.src)
             src_lengths = (src_tensor != self.vocab.src.pad_id).sum(dim=0)
 
-            # Will use if attention is provided
-            encoder_output, decoder_hidden = self.encoder.forward(
+            # Get information from encoder
+            encoder_output, decoder_init_state = self.encoder.forward(
                 src_tensor, src_lengths)
-            decoder_input = torch.LongTensor(start_id).view(1, - 1)
-            if self.use_cuda:
-                decoder_input = decoder_input.cuda()
 
-            # tracker: tuples of (indices, score, decoder_hidden)
-            tracker = [([], 0.0, decoder_hidden)]
+            # Do debugging here
+            # src_sent: [ a, b, c, d ]
+            # src_tensor: [ 1, 4, 6, 7, 5 ]
+            # ground_truth: [ <s>, b, c, d, a, </s> ]
+            # tgt_tensor:   [   1, 4, 6, 7, 5,    2 ]
+            """
+            tgt_sent = ["<s>", "b", "c", "d", "a", "</s>"]
+            tgt_tensor = self.sents2tensor([tgt_sent], self.vocab.tgt)
+
+            gt_input = tgt_tensor[:-1]
+            gt_pred, _ = self.decoder.forward(gt_input, decoder_init_state)
+            gt_pred_indices = gt_pred.max(-1)[1]
+            gt_pred_words = self.vocab.tgt.indices2words(
+                gt_pred_indices.numpy().tolist())
+            print("source", src_sent)
+            print("ground truth feeding prediction", gt_pred_words)
+            print("vocab", self.vocab.tgt.word2id)
+            """
+
+            # beam_states: list of tuples of (indices, score, decoder_hidden)
+            init_state = ([start_id], 0.0, decoder_init_state)
+            beam_states = [init_state]
             for step in range(max_decoding_time_step):
+                next_beam_states = []
+                """
+                for b in beam_states:
+                    print("beam_state", b[:2])
+                """
+                for prev_indices, prev_score, prev_decoder_hidden in beam_states:
+                    prev_word_id = prev_indices[-1]
 
-                previous_tracker = deepcopy(tracker)
-                tracker = []
-                for indices, score, decoder_hidden in previous_tracker:
-                    if len(indices) and indices[-1] == stop_id:
-                        tracker.append((indices, score, decoder_hidden))
+                    if prev_word_id == stop_id:  # </s>
+                        next_beam_states.append(
+                            (prev_indices, prev_score, prev_decoder_hidden))
                         continue
 
-                    decoder_output, decoder_hidden = self.decoder.forward(
-                        decoder_input, decoder_hidden)
-                    # Squeeze to 1 dim
-                    decoder_output = decoder_output.squeeze()
-                    decoder_probs = F.softmax(decoder_output, dim=-1)
-                    decoder_log_probs = decoder_probs.log()
-
-                    # Top beam_size candidates
-                    beam_log_probs, beam_word_indices = decoder_log_probs\
-                        .topk(beam_size)
-                    # move to cpu
+                    # Initialize decoder_input (1, 1)
+                    decoder_input = torch.LongTensor([[prev_word_id]])
                     if self.use_cuda:
-                        beam_log_probs = beam_log_probs.cpu().numpy()
-                        beam_word_indices = beam_word_indices.cpu().numpy()
-                    else:
-                        beam_log_probs = beam_log_probs.numpy()
-                        beam_word_indices = beam_word_indices.numpy()
+                        decoder_input = decoder_input.cuda()
 
-                    for log_prob, word_id in zip(beam_log_probs, beam_word_indices):
-                        candidate = (indices + [word_id],
-                                     score + log_prob, decoder_hidden)
-                        tracker.append(candidate)
+                    decoder_output, decoder_hidden = self.decoder.forward(
+                        decoder_input, prev_decoder_hidden)
+
+                    # Since we have only 1 element, squeeze to 1 dim
+                    decoder_output = decoder_output.squeeze()
+                    decoder_probs = F.softmax(decoder_output)
+                    scores = decoder_probs.log()  # log score for addition
+
+                    # Top beam_size candidates and move to numpy
+                    cand_scores, cand_indices = scores.topk(beam_size)
+                    if self.use_cuda:
+                        cand_scores = cand_scores.cpu()
+                        cand_indices = cand_indices.cpu()
+
+                    cand_scores = cand_scores.numpy()
+                    cand_indices = cand_indices.numpy()
+
+                    # Add possible candidates to next_beam_states
+                    for word_score, word_id in zip(cand_scores, cand_indices):
+                        candidate = (prev_indices + [word_id],
+                                     prev_score + word_score, decoder_hidden)
+                        next_beam_states.append(candidate)
 
                 # Choose among the ones with highest scores
-                tracker = sorted(
-                    tracker, key=lambda c: c[1], reverse=True)[:beam_size]
+                next_beam_states = sorted(
+                    next_beam_states, key=lambda c: c[1], reverse=True)[:beam_size]
 
-                # Breaks if encounters </s>
-                if sum(c[0][-1] == stop_id for c in tracker) == beam_size:
+                beam_states = next_beam_states
+
+                # Breaks if all beam search candidates have ended
+                if sum(c[0][-1] == stop_id for c in beam_states) == beam_size:
                     break
 
-        # Convert tracker into hypothesis
+        # Convert beam_states into hypothesis
         hypotheses = []
-        for word_indices, log_score, _ in tracker:
-            sent = self.vocab.tgt.indices2words(word_indices)
+        for word_indices, log_score, _ in beam_states:
+            sent = self.vocab.tgt.indices2words(
+                word_indices[1:-1])
             hyp = Hypothesis(value=sent, score=log_score)
             hypotheses.append(hyp)
         return hypotheses
@@ -390,6 +424,9 @@ def train(args: Dict[str, str]):
 
     model = NMT(model_opt)
     model.init_weights(uniform_init)
+
+    if args["--model-path"]:
+        model = NMT.load(args["--model-path"])
 
     if optimizer == "SGD":
         optimizer = optim.SGD(model.parameters(), lr,
@@ -573,7 +610,6 @@ def decode(args: Dict[str, str]):
 
 def main():
     args = docopt(__doc__)
-    print(args)
     # seed the random number generator (RNG), you may
     # also want to seed the RNG of tensorflow, pytorch, dynet, etc.
     seed = int(args['--seed'])
