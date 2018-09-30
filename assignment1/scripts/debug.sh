@@ -9,19 +9,17 @@ dev_tgt="data.debug/valid.de-en.en"
 #test_tgt="data.debug/test.de-en.en"
 test_src=$train_src
 test_tgt=$train_tgt
-
 work_dir="work_dir.debug"
 
 mkdir -p ${work_dir}
 echo save results to ${work_dir}
 
 python nmt.py \
-    decode \
-    --cuda \
-    --beam-size 1 \
-    --max-decoding-time-step 100 \
+    debug \
+    --train-src ${train_src} \
+    --train-tgt ${train_tgt} \
     ${work_dir}/model.bin \
-    ${test_src} \
-    ${work_dir}/decode.txt
+    ${work_dir}/train_decode.txt
 
-perl multi-bleu.perl ${test_tgt} < ${work_dir}/decode.txt
+#>${work_dir}/err.log
+

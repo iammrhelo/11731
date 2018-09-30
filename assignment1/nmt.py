@@ -21,7 +21,7 @@ Options:
     --embed-size=<int>                      embedding size [default: 256]
     --hidden-size=<int>                     hidden size [default: 256]
     --num-layers=<int>                      number of layers for encoder and decoder [default: 1]
-    --bidirectional                         use bidirectional for encoder [default: False]
+    --bidirectional                         use bidirectional for encoder
     --clip-grad=<float>                     gradient clipping [default: 5.0]
     --log-every=<int>                       log every [default: 10]
     --max-epoch=<int>                       max epoch [default: 30]
@@ -68,7 +68,7 @@ import torch.optim as optim
 from torch import Tensor
 from torch.nn.utils import clip_grad_norm_
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
-from models import Encoder, Decoder, LuongDecoder
+from models import Encoder, LuongDecoder
 
 Hypothesis = namedtuple('Hypothesis', ['value', 'score'])
 
@@ -92,10 +92,13 @@ class NMT(nn.Module):
         encoder_opt = deepcopy(opt)
         encoder_opt["num_embeddings"] = len(self.vocab.src)
         self.encoder = Encoder(encoder_opt)
+
+        encoder_hidden_size = int(self.bidirectional+1) * self.hidden_size
+
         decoder_opt = deepcopy(opt)
         decoder_opt["num_embeddings"] = len(self.vocab.tgt)
-        # self.decoder = LuongDecoder(decoder_opt)
-        self.decoder = Decoder(decoder_opt)
+        decoder_opt["hidden_size"] = encoder_hidden_size
+        self.decoder = LuongDecoder(decoder_opt)
 
         # Evaluation
         self.criterion = nn.CrossEntropyLoss(
@@ -274,11 +277,11 @@ class NMT(nn.Module):
                         decoder_input = decoder_input.cuda()
 
                     decoder_output, decoder_hidden = self.decoder.forward(
-                        decoder_input, prev_decoder_hidden)
+                        decoder_input, prev_decoder_hidden, encoder_output)
 
                     # Since we have only 1 element, squeeze to 1 dim
                     decoder_output = decoder_output.squeeze()
-                    decoder_probs = F.softmax(decoder_output)
+                    decoder_probs = F.softmax(decoder_output, dim=0)
                     scores = decoder_probs.log()  # log score for addition
 
                     # Top beam_size candidates and move to numpy

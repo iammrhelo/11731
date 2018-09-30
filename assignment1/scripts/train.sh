@@ -22,6 +22,7 @@ python nmt.py \
     --dev-src ${dev_src} \
     --dev-tgt ${dev_tgt} \
     --save-to ${work_dir} \
+    --bidirectional  \
     --num-layers 2 \
     --valid-niter 2400 \
     --batch-size 64 \
