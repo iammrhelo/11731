@@ -114,7 +114,7 @@ class NMT(nn.Module):
         Initialize weights for all modules
         """
         for param in self.parameters():
-            init.constant_(param, uniform_weight)
+            init.uniform(param, -uniform_weight, uniform_weight)
 
     def __call__(self, src_sents: List[List[str]], tgt_sents: List[List[str]]) -> Tensor:
         """
