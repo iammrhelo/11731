@@ -22,6 +22,7 @@ Options:
     --hidden-size=<int>                     hidden size [default: 256]
     --num-layers=<int>                      number of layers for encoder and decoder [default: 1]
     --bidirectional                         use bidirectional for encoder
+    --attn-type=<str>                       type of attention to use [default: Concat]
     --clip-grad=<float>                     gradient clipping [default: 5.0]
     --log-every=<int>                       log every [default: 10]
     --max-epoch=<int>                       max epoch [default: 30]
@@ -31,7 +32,6 @@ Options:
     --beam-size=<int>                       beam size [default: 5]
     --optimizer=<str>                       optimizer [default: Adam]
     --lr=<float>                            learning rate [default: 0.001]
-
     --uniform-init=<float>                  uniformly initialize all parameters [default: 0.1]
     --save-to=<file>                        model save path
     --valid-niter=<int>                     perform validation after how mtyping.Any iterations [default: 2000]
@@ -83,6 +83,7 @@ class NMT(nn.Module):
         self.hidden_size = opt["hidden_size"]
         self.num_layers = opt["num_layers"]
         self.bidirectional = opt["bidirectional"]
+        self.attn_type = opt["attn_type"]
         self.dropout_rate = opt["dropout_rate"]
         self.vocab = opt["vocab"]
         self.use_cuda = opt["use_cuda"]
@@ -93,10 +94,10 @@ class NMT(nn.Module):
         self.encoder = Encoder(encoder_opt)
 
         encoder_hidden_size = (int(self.bidirectional)+1) * self.hidden_size
+        decoder_hidden_size = self.hidden_size
 
-        attn_opt = {"input_size": encoder_hidden_size +
-                    self.hidden_size, "output_size": self.hidden_size}
-        attn = GlobalAttention(attn_opt)
+        attn = GlobalAttention(
+            self.attn_type, encoder_hidden_size, decoder_hidden_size)
 
         decoder_opt = deepcopy(opt)
         decoder_opt["num_embeddings"] = len(self.vocab.tgt)
@@ -114,7 +115,7 @@ class NMT(nn.Module):
         Initialize weights for all modules
         """
         for param in self.parameters():
-            init.uniform(param, -uniform_weight, uniform_weight)
+            init.uniform_(param, -uniform_weight, uniform_weight)
 
     def __call__(self, src_sents: List[List[str]], tgt_sents: List[List[str]]) -> Tensor:
         """
@@ -418,6 +419,7 @@ def train(args: Dict[str, str]):
         "num_layers": int(args['--num-layers']),
         "dropout_rate": float(args['--dropout']),
         "bidirectional": bool(args['--bidirectional']),
+        "attn_type": args['--attn-type'],
         "vocab": vocab,
         "use_cuda": bool(args["--cuda"])
     }

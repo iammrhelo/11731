@@ -93,9 +93,8 @@ class LuongDecoder(nn.Module):
         self.attn = attn
 
         # Final output prediction
-        #self.Wc = nn.Linear(self.attn.input_size, self.hidden_size)
-        #self.h2o = nn.Linear(self.hidden_size, self.num_embeddings)
-        self.h2o = nn.Linear(self.attn.input_size, self.num_embeddings)
+        concat_size = self.attn.input_size + self.attn.output_size
+        self.h2o = nn.Linear(concat_size, self.num_embeddings)
 
     def forward(self, x, hidden=None, src_encodings=None, tgt=None):
         """
@@ -130,20 +129,29 @@ class GlobalAttention(nn.Module):
     """
     TODO: Implement 3 types of attention:
     1. Dot
-    2. General
+    2. General: h_t^T W_a * h_s
     3. Concat: v_a^T * tanh(W_a^T[ h_t, h_s ])
 
     Currently, we use BiLinear attention
     """
 
-    def __init__(self, opt):
+    def __init__(self, attn_type, encoder_hidden_size, decoder_hidden_size):
         super(GlobalAttention, self).__init__()
-        self.input_size = opt["input_size"]
-        self.output_size = opt["output_size"]
-        self.attn_type = opt.get("attn_type", "concat")
+        self.attn_type = attn_type
+        self.encoder_hidden_size = encoder_hidden_size
+        self.decoder_hidden_size = decoder_hidden_size
 
-        self.Wa = nn.Linear(self.input_size, self.output_size, bias=False)
-        self.Va = nn.Linear(self.output_size, 1, bias=False)
+        if self.attn_type == "Concat":
+            self.input_size = self.encoder_hidden_size + self.decoder_hidden_size
+            self.output_size = self.decoder_hidden_size
+            self.Wa = nn.Linear(self.input_size, self.output_size, bias=False)
+            self.Va = nn.Linear(self.output_size, 1, bias=False)
+        elif self.attn_type == "General":
+            self.input_size = self.encoder_hidden_size
+            self.output_size = self.decoder_hidden_size
+            self.Wa = nn.Linear(self.input_size, self.output_size, bias=False)
+        else:
+            raise ValueError("Unknown attn_type: {}".format(self.attn_type))
 
     def forward(self, h_t, src_encodings):
         """
@@ -154,17 +162,36 @@ class GlobalAttention(nn.Module):
         Returns:
             attn_weights: (src_length, batch_size, 1)
         """
-        src_length, _, _ = src_encodings.shape
-        tgt_length, _, _ = h_t.shape
+        src_length, batch_size, src_dim = src_encodings.shape
+        tgt_length, batch_size, tgt_dim = h_t.shape
 
         # First we formulate into 4D array
         # (src_length, tgt_length, batch_size, hidden_size)
-        expand_ht = h_t.expand(src_length, -1, -1, -1)
-        expand_src_encodings = src_encodings.expand(
-            tgt_length, -1, -1, -1).permute(1, 0, 2, 3)
+        if self.attn_type == "Concat":
+            expand_ht = h_t.expand(src_length, -1, -1, -1)
+            expand_src_encodings = src_encodings.expand(
+                tgt_length, -1, -1, -1).permute(1, 0, 2, 3)
+            concat_hidden = torch.cat(
+                [expand_ht, expand_src_encodings], dim=-1)
+            scores = self.Va(torch.tanh(self.Wa(concat_hidden)))
+            attn_weights = F.softmax(scores, dim=0)
+            context = (attn_weights * expand_src_encodings).sum(dim=0)
+        elif self.attn_type == "General":
+            # Wa * h_s: (src_length, batch_size, tgt_dim)
+            Wahs = self.Wa(src_encodings)
+            # batch first for torch.bmm
+            bf_Wahs = Wahs.permute(1, 0, 2)
+            bf_h_t = h_t.permute(1, 2, 0)
 
-        concat_hidden = torch.cat([expand_ht, expand_src_encodings], dim=-1)
-        scores = self.Va(torch.tanh(self.Wa(concat_hidden)))
-        attn_weights = F.softmax(scores, dim=0)
-        context = (attn_weights * expand_src_encodings).sum(dim=0)
+            # scores: (batch_size, src_length, target_length)
+            scores = torch.bmm(bf_Wahs, bf_h_t)
+            scores = scores.permute(1, 2, 0).unsqueeze(-1)
+
+            attn_weights = F.softmax(scores, dim=0)
+
+            expand_src_encodings = src_encodings.expand(
+                tgt_length, -1, -1, -1).permute(1, 0, 2, 3)
+
+            context = (attn_weights * expand_src_encodings).sum(dim=0)
+
         return context
