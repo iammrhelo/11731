@@ -34,8 +34,6 @@ python nmt.py \
     --clip-grad 5.0 \
     --lr-decay 0.5 \
     --bidirectional  \
-    --patience 3 \
-    --max-num-trials 3
-
+    
 #>${work_dir}/err.log
 

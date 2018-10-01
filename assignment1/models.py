@@ -93,7 +93,11 @@ class LuongDecoder(nn.Module):
         self.attn = attn
 
         # Final output prediction
-        concat_size = self.attn.input_size + self.attn.output_size
+        if self.attn.attn_type == "Concat":
+            concat_size = self.attn.input_size
+        else:
+            concat_size = self.attn.input_size + self.attn.output_size
+
         self.h2o = nn.Linear(concat_size, self.num_embeddings)
 
     def forward(self, x, hidden=None, src_encodings=None, tgt=None):
