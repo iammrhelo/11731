@@ -197,5 +197,7 @@ class GlobalAttention(nn.Module):
                 tgt_length, -1, -1, -1).permute(1, 0, 2, 3)
 
             context = (attn_weights * expand_src_encodings).sum(dim=0)
+        else:
+            raise ValueError("Unknown attn_type: {}".format(self.attn_type))
 
         return context
