@@ -104,8 +104,7 @@ class NMT(nn.Module):
         self.decoder = LuongDecoder(decoder_opt, attn)
 
         # Evaluation
-        self.criterion = nn.CrossEntropyLoss(
-            ignore_index=self.vocab.tgt.pad_id, reduction="none")
+        self.criterion = nn.CrossEntropyLoss(ignore_index=self.vocab.tgt.pad_id, reduction="none")
 
         if self.use_cuda:
             self.cuda()
@@ -192,7 +191,6 @@ class NMT(nn.Module):
         # Here we feed in the target output for log-likelihood prediction
         # (length, batch_size, classes)
         decoder_hidden = decoder_init_state
-
         decoder_input = tgt_tensor[:-1]
         decoder_true = tgt_tensor[1:]
 
@@ -583,7 +581,7 @@ def beam_search(model: NMT, test_data_src: List[List[str]], beam_size: int, max_
 
 def decode(args: Dict[str, str]):
     """
-    performs decoding on a test set, and save the best-scoring decoding results. 
+    performs decoding on a test set, and save the best-scoring decoding results.
     If the target gold-standard sentences are given, the function also computes
     corpus-level BLEU score.
     """
