@@ -167,7 +167,7 @@ class GlobalAttention(nn.Module):
 
         # First we formulate into 4D array
         # (src_length, tgt_length, batch_size, hidden_size)
-        if self.attn_type == "Concat":
+        if self.attn_type.lower() == "Concat".lower():
             expand_ht = h_t.expand(src_length, -1, -1, -1)
             expand_src_encodings = src_encodings.expand(
                 tgt_length, -1, -1, -1).permute(1, 0, 2, 3)
@@ -176,7 +176,7 @@ class GlobalAttention(nn.Module):
             scores = self.Va(torch.tanh(self.Wa(concat_hidden)))
             attn_weights = F.softmax(scores, dim=0)
             context = (attn_weights * expand_src_encodings).sum(dim=0)
-        elif self.attn_type == "General":
+        elif self.attn_type.lower() == "General".lower():
             # Wa * h_s: (src_length, batch_size, tgt_dim)
             Wahs = self.Wa(src_encodings)
             # batch first for torch.bmm
@@ -193,5 +193,7 @@ class GlobalAttention(nn.Module):
                 tgt_length, -1, -1, -1).permute(1, 0, 2, 3)
 
             context = (attn_weights * expand_src_encodings).sum(dim=0)
+        else:
+            import pdb; pdb.set_trace()
 
         return context
