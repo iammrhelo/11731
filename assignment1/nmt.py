@@ -23,6 +23,7 @@ Options:
     --num-layers=<int>                      number of layers for encoder and decoder [default: 1]
     --bidirectional                         use bidirectional for encoder
     --attn-type=<str>                       type of attention to use [default: Concat]
+    --mask-attn=<bool>                      mask src encodings [default: False]
     --clip-grad=<float>                     gradient clipping [default: 5.0]
     --log-every=<int>                       log every [default: 10]
     --max-epoch=<int>                       max epoch [default: 30]
@@ -84,6 +85,7 @@ class NMT(nn.Module):
         self.num_layers = opt["num_layers"]
         self.bidirectional = opt["bidirectional"]
         self.attn_type = opt["attn_type"]
+        self.mask_attn = opt["mask_attn"]
         self.dropout_rate = opt["dropout_rate"]
         self.vocab = opt["vocab"]
         self.use_cuda = opt["use_cuda"]
@@ -97,14 +99,15 @@ class NMT(nn.Module):
         decoder_hidden_size = self.hidden_size
 
         attn = GlobalAttention(
-            self.attn_type, encoder_hidden_size, decoder_hidden_size)
+            self.attn_type, self.mask_attn, encoder_hidden_size, decoder_hidden_size)
 
         decoder_opt = deepcopy(opt)
         decoder_opt["num_embeddings"] = len(self.vocab.tgt)
         self.decoder = LuongDecoder(decoder_opt, attn)
 
         # Evaluation
-        self.criterion = nn.CrossEntropyLoss(ignore_index=self.vocab.tgt.pad_id, reduction="none")
+        self.criterion = nn.CrossEntropyLoss(
+            ignore_index=self.vocab.tgt.pad_id, reduction="none")
 
         if self.use_cuda:
             self.cuda()
@@ -131,8 +134,9 @@ class NMT(nn.Module):
                 each example in the input batch
         """
         # Train mode
-        src_encodings, decoder_init_state = self.encode(src_sents)
-        scores = self.decode(src_encodings, decoder_init_state, tgt_sents)
+        src_encodings, src_lengths, decoder_init_state = self.encode(src_sents)
+        scores = self.decode(
+            src_encodings, src_lengths, decoder_init_state, tgt_sents)
         return scores
 
     def sents2tensor(self, sents: List[List[str]], vocab: typing.Any) -> Tensor:
@@ -168,9 +172,9 @@ class NMT(nn.Module):
 
         # (length, batch_size, dim)
         encoder_output, encoder_hidden = self.encoder(src_tensor, src_lengths)
-        return encoder_output, encoder_hidden
+        return encoder_output, src_lengths, encoder_hidden
 
-    def decode(self, src_encodings: Tensor, decoder_init_state: typing.Any, tgt_sents: List[List[str]]) -> Tensor:
+    def decode(self, src_encodings: Tensor, src_lengths: Tensor, decoder_init_state: typing.Any, tgt_sents: List[List[str]] = None) -> Tensor:
         """
         Given source encodings, compute the log-likelihood of predicting the gold-standard target
         sentence tokens
@@ -195,7 +199,7 @@ class NMT(nn.Module):
         decoder_true = tgt_tensor[1:]
 
         decoder_pred, _ = self.decoder.forward(
-            decoder_input, decoder_hidden, src_encodings, decoder_true)
+            decoder_input, decoder_hidden, src_encodings, src_lengths, decoder_true)
 
         # Permute for loss calculation
         # (batch_size, classes, length)
@@ -418,6 +422,7 @@ def train(args: Dict[str, str]):
         "dropout_rate": float(args['--dropout']),
         "bidirectional": bool(args['--bidirectional']),
         "attn_type": args['--attn-type'],
+        "mask_attn": args['--mask-attn'],
         "vocab": vocab,
         "use_cuda": bool(args["--cuda"])
     }

@@ -100,12 +100,13 @@ class LuongDecoder(nn.Module):
 
         self.h2o = nn.Linear(concat_size, self.num_embeddings)
 
-    def forward(self, x, hidden=None, src_encodings=None, tgt=None):
+    def forward(self, x, hidden=None, src_encodings=None, src_lengths=None, tgt=None):
         """
         Args:
             x: decoder input (length, batch_size)
             decoder_hidden : decoder hidden state
             src_encodings : encoder states (src_length, batch_size, hidden_size)
+            src_lengths: corresponding lengths of source encoder
             tgt : target output tensor (length, batch_size)
         """
         if tgt is None:
@@ -120,7 +121,7 @@ class LuongDecoder(nn.Module):
 
         # attn_weights: (src_length, tgt_length, batch_size, hidden_size)
         # src_encodings: (src_length, batch_size, hidden_size)
-        context = self.attn.forward(rnn_output, src_encodings)
+        context = self.attn.forward(rnn_output, src_encodings, src_lengths)
         concat = torch.cat([context, rnn_output], dim=-1)
 
         # output logits
@@ -139,9 +140,10 @@ class GlobalAttention(nn.Module):
     Currently, we use BiLinear attention
     """
 
-    def __init__(self, attn_type, encoder_hidden_size, decoder_hidden_size):
+    def __init__(self, attn_type, mask_attn, encoder_hidden_size, decoder_hidden_size):
         super(GlobalAttention, self).__init__()
         self.attn_type = attn_type
+        self.mask_attn = mask_attn
         self.encoder_hidden_size = encoder_hidden_size
         self.decoder_hidden_size = decoder_hidden_size
 
@@ -157,7 +159,7 @@ class GlobalAttention(nn.Module):
         else:
             raise ValueError("Unknown attn_type: {}".format(self.attn_type))
 
-    def forward(self, h_t, src_encodings):
+    def forward(self, h_t, src_encodings, src_lengths=None):
         """
         Gets context vector here
         Args:
@@ -169,6 +171,8 @@ class GlobalAttention(nn.Module):
         src_length, batch_size, src_dim = src_encodings.shape
         tgt_length, batch_size, tgt_dim = h_t.shape
 
+        # Mask src_encodings with -inf
+
         # First we formulate into 4D array
         # (src_length, tgt_length, batch_size, hidden_size)
         if self.attn_type.lower() == "Concat".lower():
@@ -178,25 +182,45 @@ class GlobalAttention(nn.Module):
             concat_hidden = torch.cat(
                 [expand_ht, expand_src_encodings], dim=-1)
             scores = self.Va(torch.tanh(self.Wa(concat_hidden)))
-            attn_weights = F.softmax(scores, dim=0)
-            context = (attn_weights * expand_src_encodings).sum(dim=0)
+
         elif self.attn_type.lower() == "General".lower():
             # Wa * h_s: (src_length, batch_size, tgt_dim)
             Wahs = self.Wa(src_encodings)
             # batch first for torch.bmm
             bf_Wahs = Wahs.permute(1, 0, 2)
             bf_h_t = h_t.permute(1, 2, 0)
-
-            # scores: (batch_size, src_length, target_length)
-            scores = torch.bmm(bf_Wahs, bf_h_t)
-            scores = scores.permute(1, 2, 0).unsqueeze(-1)
-
-            attn_weights = F.softmax(scores, dim=0)
-
             expand_src_encodings = src_encodings.expand(
                 tgt_length, -1, -1, -1).permute(1, 0, 2, 3)
+            # scores: (batch_size, src_length, target_length)
+            scores = torch.bmm(bf_Wahs, bf_h_t)
 
-            context = (attn_weights * expand_src_encodings).sum(dim=0)
+            scores = scores.permute(1, 2, 0).unsqueeze(-1)
+
         else:
             raise ValueError("Unknown attn_type: {}".format(self.attn_type))
+
+        if self.mask_attn:
+            # create mask
+            mask = torch.zeros(src_length, batch_size,
+                               dtype=src_encodings.dtype)
+            for idx, length in enumerate(src_lengths):
+                mask[:length, idx] = 1
+
+            mask = mask.view(src_length, 1, batch_size, 1)
+            # masked softmax, haha
+            attn_weights = masked_softmax(scores, mask, dim=0)
+        else:
+            attn_weights = F.softmax(scores, dim=0)
+        context = (attn_weights * expand_src_encodings).sum(dim=0)
         return context
+
+
+def masked_softmax(scores, mask, dim=0):
+    """
+    scores should have the same shape as mask
+    """
+    scores_exp = torch.exp(scores)
+    masked_scores_exp = scores_exp * mask
+    masked_scores_softmax = masked_scores_exp / \
+        torch.sum(masked_scores_exp, dim=0, keepdim=True)
+    return masked_scores_softmax
