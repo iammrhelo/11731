@@ -35,7 +35,7 @@ python nmt.py \
     --lr-decay 0.5 \
     --bidirectional  \
     --patience 3 \
-    --max-num-trials 3
+    --max-num-trial 3
 
 #>${work_dir}/err.log
 
