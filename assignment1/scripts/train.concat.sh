@@ -8,7 +8,7 @@ dev_tgt="data/valid.de-en.en"
 test_src="data/test.de-en.de"
 test_tgt="data/test.de-en.en"
 
-work_dir="work_dir"
+work_dir="work_dir.concat"
 
 mkdir -p ${work_dir}
 echo save results to ${work_dir}
@@ -23,7 +23,7 @@ python nmt.py \
     --dev-tgt ${dev_tgt} \
     --save-to ${work_dir} \
     --num-layers 1 \
-    --attn-type Linear \
+    --attn-type Concat \
     --max-epoch 20 \
     --valid-niter 600 \
     --batch-size 64 \

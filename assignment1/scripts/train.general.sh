@@ -8,7 +8,7 @@ dev_tgt="data/valid.de-en.en"
 test_src="data/test.de-en.de"
 test_tgt="data/test.de-en.en"
 
-work_dir="work_dir"
+work_dir="work_dir.general"
 
 mkdir -p ${work_dir}
 echo save results to ${work_dir}
@@ -23,9 +23,9 @@ python nmt.py \
     --dev-tgt ${dev_tgt} \
     --save-to ${work_dir} \
     --num-layers 1 \
-    --attn-type Linear \
+    --attn-type General \
     --max-epoch 20 \
-    --valid-niter 600 \
+    --valid-niter 2400 \
     --batch-size 64 \
     --hidden-size 256 \
     --embed-size 256 \
