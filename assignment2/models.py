@@ -117,6 +117,7 @@ class LuongDecoder(nn.Module):
         # Feed ground truth for now
         embed_x = self.embed(x)
         # rnn_output: (tgt_length, batch_size, hidden_size)
+        hidden = [ h.contiguous() for h in hidden ]
         rnn_output, hidden = self.rnn.forward(embed_x, hidden)
 
         # attn_weights: (src_length, tgt_length, batch_size, hidden_size)
@@ -208,6 +209,7 @@ class GlobalAttention(nn.Module):
 
             mask = mask.view(src_length, 1, batch_size, 1)
             # masked softmax, haha
+            import pdb; pdb.set_trace()
             attn_weights = masked_softmax(scores, mask, dim=0)
         else:
             attn_weights = F.softmax(scores, dim=0)
