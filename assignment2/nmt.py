@@ -422,7 +422,7 @@ def train(args: Dict[str, str]):
         "dropout_rate": float(args['--dropout']),
         "bidirectional": bool(args['--bidirectional']),
         "attn_type": args['--attn-type'],
-        "mask_attn": args['--mask-attn'],
+        "mask_attn": args['--mask-attn'] == "True",
         "vocab": vocab,
         "use_cuda": bool(args["--cuda"])
     }
