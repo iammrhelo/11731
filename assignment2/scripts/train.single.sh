@@ -33,7 +33,6 @@ python nmt.py \
     --save-to ${work_dir} \
     --num-layers 1 \
     --attn-type General \
-    --mask-attn True \
     --max-epoch 30 \
     --valid-niter $valid_niter \
     --batch-size $batch_size \
