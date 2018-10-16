@@ -31,8 +31,9 @@ python nmt.py \
     --dev-src ${dev_src} \
     --dev-tgt ${dev_tgt} \
     --save-to ${work_dir} \
-    --num-layers 2 \
+    --num-layers 1 \
     --attn-type General \
+    --mask-attn True \
     --max-epoch 30 \
     --valid-niter $valid_niter \
     --batch-size $batch_size \

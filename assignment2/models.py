@@ -21,11 +21,12 @@ class Encoder(nn.Module):
         # Build n
         self.embed = nn.Embedding(self.num_embeddings, self.embed_size)
 
-        self.rnn = nn.LSTM(self.embed_size,
-                           self.hidden_size,
-                           self.num_layers,
-                           dropout=self.dropout_rate,
-                           bidirectional=self.bidirectional)
+        self.rnn = nn.LSTM(
+            self.embed_size,
+            self.hidden_size,
+            self.num_layers,
+            dropout=self.dropout_rate,
+            bidirectional=self.bidirectional)
 
     def forward(self, x, lengths, hidden=None):
         embed_x = self.embed(x)
@@ -40,6 +41,7 @@ class Encoder(nn.Module):
                 _, batch_size, hidden_size = h.shape
                 sep_h = h.view(self.num_layers, 2, batch_size, hidden_size)
                 return sep_h[:, 0, :, :]
+
             hidden = tuple(map(get_forward_op, hidden))
 
         return output, hidden
@@ -60,8 +62,11 @@ class Decoder(nn.Module):
 
         # Build layers
         self.embed = nn.Embedding(self.num_embeddings, self.embed_size)
-        self.rnn = nn.LSTM(self.embed_size, self.hidden_size, self.num_layers,
-                           dropout=self.dropout_rate)
+        self.rnn = nn.LSTM(
+            self.embed_size,
+            self.hidden_size,
+            self.num_layers,
+            dropout=self.dropout_rate)
         self.h2o = nn.Linear(self.hidden_size, self.num_embeddings)
 
     def forward(self, x, hidden=None, src_encodings=None, tgt_tensor=None):
@@ -86,8 +91,11 @@ class LuongDecoder(nn.Module):
 
         # Build layers
         self.embed = nn.Embedding(self.num_embeddings, self.embed_size)
-        self.rnn = nn.LSTM(self.embed_size, self.hidden_size, self.num_layers,
-                           dropout=self.dropout_rate)
+        self.rnn = nn.LSTM(
+            self.embed_size,
+            self.hidden_size,
+            self.num_layers,
+            dropout=self.dropout_rate)
 
         # Global Attention: Concat scoring function
         self.attn = attn
@@ -98,9 +106,17 @@ class LuongDecoder(nn.Module):
         else:
             concat_size = self.attn.input_size + self.attn.output_size
 
-        self.h2o = nn.Linear(concat_size, self.num_embeddings)
+        # attentional layer
+        self.c2h = nn.Linear(concat_size, self.hidden_size)
+        # output layer
+        self.h2o = nn.Linear(self.hidden_size, self.num_embeddings)
 
-    def forward(self, x, hidden=None, src_encodings=None, src_lengths=None, tgt=None):
+    def forward(self,
+                x,
+                hidden=None,
+                src_encodings=None,
+                src_lengths=None,
+                tgt=None):
         """
         Args:
             x: decoder input (length, batch_size)
@@ -117,7 +133,7 @@ class LuongDecoder(nn.Module):
         # Feed ground truth for now
         embed_x = self.embed(x)
         # rnn_output: (tgt_length, batch_size, hidden_size)
-        hidden = [ h.contiguous() for h in hidden ]
+        hidden = [h.contiguous() for h in hidden]
         rnn_output, hidden = self.rnn.forward(embed_x, hidden)
 
         # attn_weights: (src_length, tgt_length, batch_size, hidden_size)
@@ -125,8 +141,12 @@ class LuongDecoder(nn.Module):
         context = self.attn.forward(rnn_output, src_encodings, src_lengths)
         concat = torch.cat([context, rnn_output], dim=-1)
 
+        # attentional layer
+        attn_hidden_state = torch.tanh(
+            self.c2h(F.dropout(concat, self.dropout_rate)))
+
         # output logits
-        output = self.h2o(F.dropout(torch.tanh(concat), self.dropout_rate))
+        output = self.h2o(F.dropout(attn_hidden_state, self.dropout_rate))
 
         return output, hidden
 
@@ -141,7 +161,8 @@ class GlobalAttention(nn.Module):
     Currently, we use BiLinear attention
     """
 
-    def __init__(self, attn_type, mask_attn, encoder_hidden_size, decoder_hidden_size):
+    def __init__(self, attn_type, mask_attn, encoder_hidden_size,
+                 decoder_hidden_size):
         super(GlobalAttention, self).__init__()
         self.attn_type = attn_type
         self.mask_attn = mask_attn
@@ -202,14 +223,15 @@ class GlobalAttention(nn.Module):
 
         if self.mask_attn:
             # create mask
-            mask = torch.zeros(src_length, batch_size,
-                               dtype=src_encodings.dtype)
+            mask = torch.zeros(
+                src_length, batch_size, dtype=src_encodings.dtype)
+            if scores.is_cuda:
+                mask = mask.cuda()
             for idx, length in enumerate(src_lengths):
                 mask[:length, idx] = 1
 
             mask = mask.view(src_length, 1, batch_size, 1)
             # masked softmax, haha
-            import pdb; pdb.set_trace()
             attn_weights = masked_softmax(scores, mask, dim=0)
         else:
             attn_weights = F.softmax(scores, dim=0)
