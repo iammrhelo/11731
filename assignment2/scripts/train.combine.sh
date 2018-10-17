@@ -37,8 +37,8 @@ python nmt.py \
     --max-epoch 30 \
     --valid-niter $valid_niter \
     --batch-size $batch_size \
-    --hidden-size 256 \
-    --embed-size 256 \
+    --hidden-size 512 \
+    --embed-size 512 \
     --uniform-init 0.1 \
     --dropout 0.2 \
     --clip-grad 5.0 \
