@@ -353,14 +353,17 @@ class NMT(nn.Module):
         return ppl
 
     @staticmethod
-    def load(model_path: str):
+    def load(model_path: str, use_cuda = False):
         """
         Load a pre-trained model
 
         Returns:
             model: the loaded model
         """
-        model = torch.load(model_path)
+        if use_cuda:
+            model = torch.load(model_path, map_location=lambda storage, loc: storage)
+        else:
+            model = torch.load(model_path)
         model.encoder.rnn.flatten_parameters()
         model.decoder.rnn.flatten_parameters()
         return model
@@ -414,6 +417,8 @@ def train(args: Dict[str, str]):
     optim_save_path = os.path.join(work_dir, 'optim.bin')
 
     vocab = pickle.load(open(args['--vocab'], 'rb'))
+    print('src vocab', len(vocab.src))
+    print('tgt vocab', len(vocab.tgt))
 
     model_opt = {
         "embed_size": int(args['--embed-size']),
@@ -595,6 +600,7 @@ def decode(args: Dict[str, str]):
         test_data_tgt = read_corpus(args['TEST_TARGET_FILE'], source='tgt')
 
     print(f"load model from {args['MODEL_PATH']}", file=sys.stderr)
+    use_cuda = bool(args['--cuda'])
     model = NMT.load(args['MODEL_PATH'])
     model.eval()
     hypotheses = beam_search(model, test_data_src,
