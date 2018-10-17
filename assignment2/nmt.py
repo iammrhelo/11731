@@ -361,9 +361,10 @@ class NMT(nn.Module):
             model: the loaded model
         """
         if use_cuda:
-            model = torch.load(model_path, map_location=lambda storage, loc: storage)
-        else:
             model = torch.load(model_path)
+        else:
+            model = torch.load(model_path, map_location=lambda storage, loc: storage)
+            model.use_cuda = False
         model.encoder.rnn.flatten_parameters()
         model.decoder.rnn.flatten_parameters()
         return model
@@ -601,7 +602,7 @@ def decode(args: Dict[str, str]):
 
     print(f"load model from {args['MODEL_PATH']}", file=sys.stderr)
     use_cuda = bool(args['--cuda'])
-    model = NMT.load(args['MODEL_PATH'])
+    model = NMT.load(args['MODEL_PATH'], use_cuda)
     model.eval()
     hypotheses = beam_search(model, test_data_src,
                              beam_size=int(args['--beam-size']),
