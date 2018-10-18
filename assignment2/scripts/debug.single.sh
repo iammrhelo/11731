@@ -1,23 +1,23 @@
 #!/bin/sh
 
 l1=$1
-l2=$2
 
-vocab="data/vocab.$l1+$l2-en.bin"
-train_src="data/train.en-$l1+$l2.$l1+$l2.txt"
-train_tgt="data/train.en-$l1+$l2.en.txt"
-dev_src="data/dev.en-$l1+$l2.$l1+$l2.txt"
-dev_tgt="data/dev.en-$l1+$l2.en.txt"
-test_src="data/dev.en-$l1+$l2.$l1+$l2.txt"
-test_tgt="data/dev.en-$l1+$l2.en.txt"
+vocab="data/vocab.$l1-en2.bin"
+train_src="data/train.en2-$l1.$l1.txt"
+train_tgt="data/train.en2-$l1.en2.txt"
+dev_src="data/dev.en2-$l1.$l1.txt"
+dev_tgt="data/dev.en2-$l1.en2.txt"
+test_src="data/dev.en2-$l1.$l1.txt"
+test_tgt="data/dev.en2-$l1.en2.txt"
 
-work_dir="work_dir.$l1+$l2-en"
+work_dir="work_dir.$l1-en2"
 
 mkdir -p ${work_dir}
 echo save results to ${work_dir}
 
+
 #Parameters
-batch_size=48
+batch_size=1
 a=$(wc -l < "${train_src}")
 b=$batch_size
 valid_niter=$((a%b?a/b+1:a/b))
@@ -33,11 +33,12 @@ python nmt.py \
     --save-to ${work_dir} \
     --num-layers 1 \
     --attn-type General \
-    --max-epoch 40 \
+    --mask-attn True \
+    --max-epoch 30 \
     --valid-niter $valid_niter \
     --batch-size $batch_size \
-    --hidden-size 256 \
-    --embed-size 256 \
+    --hidden-size 50 \
+    --embed-size 50 \
     --uniform-init 0.1 \
     --dropout 0.2 \
     --clip-grad 5.0 \

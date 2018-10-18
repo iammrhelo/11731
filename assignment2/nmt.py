@@ -42,6 +42,7 @@ Options:
 """
 
 import math
+import gc
 import os
 import pickle
 import sys
@@ -244,29 +245,12 @@ class NMT(nn.Module):
             # src_tensor: [ 1, 4, 6, 7, 5 ]
             # ground_truth: [ <s>, b, c, d, a, </s> ]
             # tgt_tensor:   [   1, 4, 6, 7, 5,    2 ]
-            """
-            tgt_sent = ["<s>", "b", "c", "d", "a", "</s>"]
-            tgt_tensor = self.sents2tensor([tgt_sent], self.vocab.tgt)
-
-            gt_input = tgt_tensor[:-1]
-            gt_pred, _ = self.decoder.forward(gt_input, decoder_init_state)
-            gt_pred_indices = gt_pred.max(-1)[1]
-            gt_pred_words = self.vocab.tgt.indices2words(
-                gt_pred_indices.numpy().tolist())
-            print("source", src_sent)
-            print("ground truth feeding prediction", gt_pred_words)
-            print("vocab", self.vocab.tgt.word2id)
-            """
 
             # beam_states: list of tuples of (indices, score, decoder_hidden)
             init_state = ([start_id], 0.0, decoder_init_state)
             beam_states = [init_state]
             for step in range(max_decoding_time_step):
                 next_beam_states = []
-                """
-                for b in beam_states:
-                    print("beam_state", b[:2])
-                """
                 for prev_indices, prev_score, prev_decoder_hidden in beam_states:
                     prev_word_id = prev_indices[-1]
 
@@ -524,7 +508,7 @@ def train(args: Dict[str, str]):
                 model.eval()
                 # compute dev. ppl and bleu
                 # dev batch size can be a bit larger
-                dev_ppl = model.evaluate_ppl(dev_data, batch_size=128)
+                dev_ppl = model.evaluate_ppl(dev_data, batch_size=32)
                 valid_metric = -dev_ppl
 
                 print('validation: iter %d, dev. ppl %f' %
@@ -573,6 +557,8 @@ def train(args: Dict[str, str]):
                 if epoch == int(args['--max-epoch']):
                     print('reached maximum number of epochs!', file=sys.stderr)
                     exit(0)
+
+                gc.collect()
 
 
 def beam_search(model: NMT, test_data_src: List[List[str]], beam_size: int, max_decoding_time_step: int) -> List[List[Hypothesis]]:

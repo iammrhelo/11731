@@ -17,7 +17,7 @@ echo save results to ${work_dir}
 
 
 #Parameters
-batch_size=50
+batch_size=64
 a=$(wc -l < "${train_src}")
 b=$batch_size
 valid_niter=$((a%b?a/b+1:a/b))

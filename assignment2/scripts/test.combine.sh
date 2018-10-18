@@ -7,13 +7,15 @@ beam_size=$3
 vocab="data/vocab.$l1+$l2-en.bin"
 train_src="data/train.en-$l1+$l2.$l1+$l2.txt"
 train_tgt="data/train.en-$l1+$l2.en.txt"
-dev_src="data/dev.en-$l1+$l2.$l1+$l2.txt"
-dev_tgt="data/dev.en-$l1+$l2.en.txt"
-test_src="data/test.en-$l1+$l2.$l1+$l2.txt"
-test_tgt="data/test.en-$l1+$l2.en.txt"
-vocab="data/vocab.$l1+$l2-en.bin"
+dev_src="data/dev.en-$l1.$l1.txt"
+dev_tgt="data/dev.en-$l1.en.txt"
+test_src="data/test.en-$l1.$l1.txt"
+test_tgt="data/test.en-$l1.en.txt"
+vocab="data/vocab.$l1-en.bin"
 
 work_dir="work_dir.$l1+$l2-en"
+
+echo "For testing, we only test $l1"
 
 echo decoding $dev_src ...
 python nmt.py \
