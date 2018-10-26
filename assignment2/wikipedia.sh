@@ -5,6 +5,16 @@
 
 LANGUAGE=$1
 
+if [ ! -d "wikiextractor" ]; then
+  # Control will enter here if $DIRECTORY doesn't exist.
+  git clone https://github.com/attardi/wikiextractor
+fi
+
+if [ ! -d "mosesdecoder" ]; then
+  # Control will enter here if $DIRECTORY doesn't exist.
+  git clone https://github.com/moses-smt/mosesdecoder
+fi
+
 #download wikipedia dump
 wget https://dumps.wikimedia.org/${LANGUAGE}wiki/20181001/${LANGUAGE}wiki-20181001-pages-articles-multistream.xml.bz2 .
 
@@ -12,7 +22,7 @@ wget https://dumps.wikimedia.org/${LANGUAGE}wiki/20181001/${LANGUAGE}wiki-201810
 bzip2 -d ${LANGUAGE}wiki-20181001-pages-articles-multistream.xml.bz2
 
 #extract articles in one big file
-cd $WIKI_EX
+cd wikiextractor
 python WikiExtractor.py -b 100000000000 ../${LANGUAGE}wiki-20181001-pages-articles-multistream.xml -o ..
 cd ..
 mv AA/wiki_00 ${LANGUAGE}.wiki.txt
