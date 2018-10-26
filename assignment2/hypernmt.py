@@ -22,12 +22,14 @@ Options:
     --hidden-size=<int>                     hidden size [default: 256]
     --num-layers=<int>                      number of layers for encoder and decoder [default: 1]
     --bidirectional                         use bidirectional for encoder
+    --lang1=<str>                           language one identity
+    --ltarget=<str>                         language one identity
     --attn-type=<str>                       type of attention to use [default: Concat]
     --mask-attn=<bool>                      mask src encodings [default: False]
     --clip-grad=<float>                     gradient clipping [default: 5.0]
     --log-every=<int>                       log every [default: 10]
     --max-epoch=<int>                       max epoch [default: 30]
-    --patience=<int>                        wait for how mtyping.Any iterations to decay learning rate [default: 5]
+    --patience=<int>                        wait for how mtyping.Any iterations to decay learning rate [default: 1]
     --max-num-trial=<int>                   terminate training after how mtyping.Any trials [default: 5]
     --lr-decay=<float>                      learning rate decay [default: 0.5]
     --beam-size=<int>                       beam size [default: 5]
@@ -57,7 +59,7 @@ from nltk.translate.bleu_score import corpus_bleu, sentence_bleu, SmoothingFunct
 from tqdm import tqdm
 from typing import List, Tuple, Dict, Set, Union
 
-from utils import read_corpus, batch_iter, input_transpose
+from utils import read_corpus, batch_iter, hyper_batch_iter, input_transpose
 from vocab import Vocab, VocabEntry
 
 # PyTorch
@@ -69,18 +71,18 @@ import torch.optim as optim
 from torch import Tensor
 from torch.nn.utils import clip_grad_norm_
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
-from models import Encoder, LuongDecoder, GlobalAttention
+from models import Encoder, LuongDecoder, HyperEncoder, GlobalAttention
 
 Hypothesis = namedtuple('Hypothesis', ['value', 'score'])
 
 
-class NMT(nn.Module):
+class HyperNMT(nn.Module):
     """
     A basic implementation of a Neural Machine Translation model
     """
 
     def __init__(self, opt):
-        super(NMT, self).__init__()
+        super(HyperNMT, self).__init__()
         self.embed_size = opt["embed_size"]
         self.hidden_size = opt["hidden_size"]
         self.num_layers = opt["num_layers"]
@@ -90,11 +92,19 @@ class NMT(nn.Module):
         self.dropout_rate = opt["dropout_rate"]
         self.vocab = opt["vocab"]
         self.use_cuda = opt["use_cuda"]
+        self.lang_embedding_size = opt["lang_embedding_size"]
 
         # Build Encoder, Decoder, and Attention
         encoder_opt = deepcopy(opt)
         encoder_opt["num_embeddings"] = len(self.vocab.src)
-        self.encoder = Encoder(encoder_opt)
+        encoder_opt["lang_embedding_size"] = self.lang_embedding_size
+
+        self.lang_embed = torch.nn.Embedding(1, self.lang_embedding_size)
+        # lang1_source = torch.LongTensor([0])
+        # lang1_embed = self.lang_embed(lang1_source)
+        # print(lang1_embed)
+
+        self.encoder = HyperEncoder(encoder_opt)
 
         encoder_hidden_size = (int(self.bidirectional)+1) * self.hidden_size
         decoder_hidden_size = self.hidden_size
@@ -120,7 +130,7 @@ class NMT(nn.Module):
         for param in self.parameters():
             init.uniform_(param, -uniform_weight, uniform_weight)
 
-    def __call__(self, src_sents: List[List[str]], tgt_sents: List[List[str]]) -> Tensor:
+    def __call__(self, src_sents: List[List[str]], tgt_sents: List[List[str]], src_langs: List[List[str]]) -> Tensor:
         """
         take a mini-batch of source and target sentences, compute the log-likelihood of
         target sentences.
@@ -135,7 +145,14 @@ class NMT(nn.Module):
                 each example in the input batch
         """
         # Train mode
-        src_encodings, src_lengths, decoder_init_state = self.encode(src_sents)
+        batch_lang = torch.LongTensor([src_langs[0]])
+        if self.use_cuda:
+            print(batch_lang)
+            batch_lang = batch_lang.cuda()
+        batch_lang_embed = self.lang_embed(batch_lang)
+
+
+        src_encodings, src_lengths, decoder_init_state = self.encode(src_sents, batch_lang_embed)
         scores = self.decode(
             src_encodings, src_lengths, decoder_init_state, tgt_sents)
         return scores
@@ -155,7 +172,7 @@ class NMT(nn.Module):
             sents_tensor = sents_tensor.cuda()
         return sents_tensor
 
-    def encode(self, src_sents: List[List[str]]) -> Tuple[Tensor, typing.Any]:
+    def encode(self, src_sents: List[List[str]], src_langs) -> Tuple[Tensor, typing.Any]:
         """
         Use a GRU/LSTM to encode source sentences into hidden states
 
@@ -172,7 +189,7 @@ class NMT(nn.Module):
         src_lengths = (src_tensor != self.vocab.src.pad_id).sum(dim=0)
 
         # (length, batch_size, dim)
-        encoder_output, encoder_hidden = self.encoder(src_tensor, src_lengths)
+        encoder_output, encoder_hidden = self.encoder(src_tensor, src_lengths, src_langs)
         return encoder_output, src_lengths, encoder_hidden
 
     def decode(self, src_encodings: Tensor, src_lengths: Tensor, decoder_init_state: typing.Any, tgt_sents: List[List[str]] = None) -> Tensor:
@@ -214,7 +231,7 @@ class NMT(nn.Module):
         scores = loss.sum(dim=1)  # sum over length
         return scores
 
-    def beam_search(self, src_sent: List[str], beam_size: int = 5, max_decoding_time_step: int = 70) -> List[Hypothesis]:
+    def beam_search(self, src_sent: List[str], src_lang, beam_size: int = 5, max_decoding_time_step: int = 70) -> List[Hypothesis]:
         """
         Given a single source sentence, perform beam search
 
@@ -230,7 +247,7 @@ class NMT(nn.Module):
         """
         start_id = self.vocab.tgt["<s>"]
         stop_id = self.vocab.tgt["</s>"]
-
+        src_lang = self.lang_embed(src_lang)
         with torch.no_grad():
             # (length, 1)
             src_tensor = self.sents2tensor([src_sent], self.vocab.src)
@@ -238,7 +255,7 @@ class NMT(nn.Module):
 
             # Get information from encoder
             encoder_output, decoder_init_state = self.encoder.forward(
-                src_tensor, src_lengths)
+                src_tensor, src_lengths, src_lang)
 
             # Do debugging here
             # src_sent: [ a, b, c, d ]
@@ -325,8 +342,9 @@ class NMT(nn.Module):
         # by the NN library to signal the backend to not to keep gradient information
         # e.g., `torch.no_grad()`
         with torch.no_grad():
-            for src_sents, tgt_sents in batch_iter(dev_data, batch_size):
-                loss = self.__call__(src_sents, tgt_sents).sum()
+            # for src_sents, tgt_sents in batch_iter(dev_data, batch_size):
+            for src_sents, tgt_sents, src_langs in hyper_batch_iter(dev_data, batch_size):
+                loss = self.__call__(src_sents, tgt_sents, src_langs).sum()
                 cum_loss += loss
                 # omitting the leading `<s>`
                 tgt_word_num_to_predict = sum(len(s[1:]) for s in tgt_sents)
@@ -337,7 +355,7 @@ class NMT(nn.Module):
         return ppl
 
     @staticmethod
-    def load(model_path: str, use_cuda = False):
+    def load(model_path: str, use_cuda = True):
         """
         Load a pre-trained model
 
@@ -387,8 +405,18 @@ def train(args: Dict[str, str]):
     dev_data_src = read_corpus(args['--dev-src'], source='src')
     dev_data_tgt = read_corpus(args['--dev-tgt'], source='tgt')
 
-    train_data = list(zip(train_data_src, train_data_tgt))
-    dev_data = list(zip(dev_data_src, dev_data_tgt))
+    lang1 = args['--lang1']
+    ltarget = args['--ltarget']
+    lang_embedding_size = 13
+
+    num_train = len(train_data_src)
+    num_dev = len(dev_data_src)
+
+    train_lang = [0 for i in range(num_train)]
+    dev_lang = [0 for i in range(num_dev)]
+
+    train_data = list(zip(train_data_src, train_data_tgt, train_lang))
+    dev_data = list(zip(dev_data_src, dev_data_tgt, dev_lang))
 
     train_batch_size = int(args['--batch-size'])
     clip_grad = float(args['--clip-grad'])
@@ -414,16 +442,17 @@ def train(args: Dict[str, str]):
         "attn_type": args['--attn-type'],
         "mask_attn": args['--mask-attn'] == "True",
         "vocab": vocab,
+        'lang_embedding_size': lang_embedding_size,
         "use_cuda": bool(args["--cuda"])
     }
     if not torch.cuda.is_available():
         model_opt["use_cuda"] = False
 
-    model = NMT(model_opt)
+    model = HyperNMT(model_opt)
     model.init_weights(uniform_init)
 
     if args["--model-path"]:
-        model = NMT.load(args["--model-path"])
+        model = HyperNMT.load(args["--model-path"])
 
     if optimizer == "SGD":
         optimizer = optim.SGD(model.parameters(), lr=lr)
@@ -442,7 +471,7 @@ def train(args: Dict[str, str]):
     while True:
         epoch += 1
 
-        for src_sents, tgt_sents in batch_iter(train_data, batch_size=train_batch_size, shuffle=True):
+        for src_sents, tgt_sents, src_langs in hyper_batch_iter(train_data, batch_size=train_batch_size, shuffle=True):
             model.train()
             train_iter += 1
 
@@ -450,7 +479,7 @@ def train(args: Dict[str, str]):
 
             optimizer.zero_grad()
             # (batch_size)
-            scores = model(src_sents, tgt_sents)
+            scores = model(src_sents, tgt_sents, src_langs)
             loss = scores.sum()
 
             # Optimizer here
@@ -543,7 +572,7 @@ def train(args: Dict[str, str]):
                             'load previously best model and decay learning rate to %f' % lr, file=sys.stderr)
 
                         # load model
-                        model = NMT.load(model_save_path)
+                        model = HyperNMT.load(model_save_path)
                         print('restore parameters of the optimizers',
                               file=sys.stderr)
                         # You may also need to load the state of the optimizer saved before
@@ -561,14 +590,14 @@ def train(args: Dict[str, str]):
                 gc.collect()
 
 
-def beam_search(model: NMT, test_data_src: List[List[str]], beam_size: int, max_decoding_time_step: int) -> List[List[Hypothesis]]:
+def beam_search(model: HyperNMT, test_data_src: List[List[str]], test_lang, beam_size: int, max_decoding_time_step: int) -> List[List[Hypothesis]]:
     was_training = model.training
 
     hypotheses = []
     try:
-        for src_sent in tqdm(test_data_src, desc='Decoding', file=sys.stdout):
+        for src_sent, src_lang, in tqdm(zip(test_data_src, test_lang), desc='Decoding', file=sys.stdout):
             example_hyps = model.beam_search(
-                src_sent, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step)
+                src_sent, src_lang, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step)
             hypotheses.append(example_hyps)
     except KeyboardInterrupt:
         print("Keyboard interrupted!")
@@ -583,14 +612,20 @@ def decode(args: Dict[str, str]):
     corpus-level BLEU score.
     """
     test_data_src = read_corpus(args['TEST_SOURCE_FILE'], source='src')
+    test_data_src_lang = args['--lang1']
+
+    num_test = len(test_data_src)
+    test_lang = [0 for i in range(num_test)]
+    test_lang = torch.LongTensor(test_lang)
+
     if args['TEST_TARGET_FILE']:
         test_data_tgt = read_corpus(args['TEST_TARGET_FILE'], source='tgt')
 
     print(f"load model from {args['MODEL_PATH']}", file=sys.stderr)
     use_cuda = bool(args['--cuda'])
-    model = NMT.load(args['MODEL_PATH'], use_cuda)
+    model = HyperNMT.load(args['MODEL_PATH'], use_cuda)
     model.eval()
-    hypotheses = beam_search(model, test_data_src,
+    hypotheses = beam_search(model, test_data_src, test_lang,
                              beam_size=int(args['--beam-size']),
                              max_decoding_time_step=int(args['--max-decoding-time-step']))
 
