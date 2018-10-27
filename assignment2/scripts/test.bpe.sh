@@ -1,7 +1,7 @@
 #!/bin/sh
 
 l1=$1
-l2=$l2
+l2=$2
 beam_size=$3
 
 data_dir=./data
@@ -9,8 +9,8 @@ bpe_dir=./data.bpe
 
 vocab="${bpe_dir}/vocab.$l1+$l2-en.bpe.bin"
 work_dir="work_dir.$l1+$l2-en.bpe"
-src_postfix=".en-$l1+$l2.$l1+$l2.bpe.txt"
-tgt_postfix=".en-$l1+$l2.en.txt"
+src_postfix=".en-$l1.$l1.bpe.txt"
+tgt_postfix=".en-$l1.en.txt"
 
 for split in dev test;
 do 
