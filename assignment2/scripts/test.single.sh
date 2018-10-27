@@ -3,35 +3,30 @@
 l1=$1
 beam_size=$2
 
-vocab="data/vocab.$l1-en.bin"
-train_src="data/train.en-$l1.$l1.txt"
-train_tgt="data/train.en-$l1.en.txt"
-dev_src="data/dev.en-$l1.$l1.txt"
-dev_tgt="data/dev.en-$l1.en.txt"
-test_src="data/test.en-$l1.$l1.txt"
-test_tgt="data/test.en-$l1.en.txt"
-vocab="data/vocab.$l1-en.bin"
+data_dir=./data
 
+vocab="data/vocab.$l1-en.bin"
 work_dir="work_dir.$l1-en"
+src_postfix=".en-$l1.$l1.txt"
+tgt_postfix=".en-$l1.en.txt"
 
-echo decoding $dev_src ...
-python nmt.py \
-    decode \
-    --beam-size ${beam_size} \
-    --max-decoding-time-step 100 \
-    ${work_dir}/model.bin \
-    ${dev_src} \
-    ${work_dir}/decode.dev.beam$beam_size.txt
+for split in dev test;
+do 
+    echo decoding ${split}_src ...
+    src_file=${data_dir}/${split}${src_postfix}
+    tgt_file=${data_dir}/${split}${tgt_postfix}
 
-perl multi-bleu.perl ${dev_tgt} < ${work_dir}/decode.dev.beam$beam_size.txt
+    dec_file=${work_dir}/decode.${split}.beam$beam_size.txt 
 
-echo decoding $test_src ...
-python nmt.py \
-    decode \
-    --beam-size ${beam_size} \
-    --max-decoding-time-step 100 \
-    ${work_dir}/model.bin \
-    ${test_src} \
-    ${work_dir}/decode.test.beam$beam_size.txt
+    echo decoding $src_file to $dec_file 
 
-perl multi-bleu.perl ${test_tgt} < ${work_dir}/decode.test.beam$beam_size.txt
+    python nmt.py \
+        decode \
+        --beam-size ${beam_size} \
+        --max-decoding-time-step 100 \
+        ${work_dir}/model.bin \
+        ${src_file} \
+        ${dec_file}
+
+    perl multi-bleu.perl ${tgt_file} < ${dec_file}
+done;   
