@@ -306,7 +306,7 @@ class NMT(nn.Module):
             hypotheses.append(hyp)
         return hypotheses
 
-    def evaluate_ppl(self, dev_data: List[typing.Any], batch_size: int = 32):
+    def evaluate_ppl(self, dev_data: List[typing.Any], batch_size: int = 16):
         """
         Evaluate perplexity on dev sentences
 
@@ -542,8 +542,8 @@ def train(args: Dict[str, str]):
                         print(
                             'load previously best model and decay learning rate to %f' % lr, file=sys.stderr)
 
-                        # load model
-                        model = NMT.load(model_save_path)
+                        # load model`
+                        model = NMT.load(model_save_path, use_cuda=bool(args["--cuda"]))
                         print('restore parameters of the optimizers',
                               file=sys.stderr)
                         # You may also need to load the state of the optimizer saved before
