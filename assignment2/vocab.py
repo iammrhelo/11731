@@ -68,7 +68,9 @@ class VocabEntry(object):
             return [self[w] for w in sents]
 
     def indices2words(self, indices):
-        if type(indices[0]) == list:
+        if len(indices) == 0:
+            return []
+        elif type(indices[0]) == list:
             return [self.indices2words(i) for i in indices]
         else:
             return [self.id2word(i) for i in indices]
