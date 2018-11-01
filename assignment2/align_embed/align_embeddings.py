@@ -58,7 +58,7 @@ def main():
 
 	with open(bilingual_dict_path, 'r', encoding='utf-8') as file:
 		for line in file:
-			words = line.split(" ")
+			words = line.strip().split(" ")
 			bilingual_dict.append((words[0], words[1]))
 
 
@@ -68,10 +68,10 @@ def main():
 
 	src_dict = FastVector(vector_file = src_embed_file)
 	tgt_dict = FastVector(vector_file = tgt_embed_file)
-
+	
 	print("FastVector Loaded")
 	# form the training matrices
-	source_matrix, target_matrix = make_training_matrices(src_dict, tgt_dict, bilingual_dictionary)
+	source_matrix, target_matrix = make_training_matrices(src_dict, tgt_dict, bilingual_dict)
 
 	# learn and apply the transformation
 	transform = learn_transformation(source_matrix, target_matrix)
