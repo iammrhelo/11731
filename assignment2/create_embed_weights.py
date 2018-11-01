@@ -32,7 +32,7 @@ def main():
 			weights_matrix[v] = np.random.normal(scale=0.6, size=(embed_size, ))
 
 	print("creating weights_matrix done")
-	pickle.dump(weights_matrix, open(embed_file, 'wb'))
+	pickle.dump(weights_matrix, open(weights_file, 'wb'))
 
 
 if __name__ == "__main__":
