@@ -12,8 +12,7 @@ Options:
     -h --help                               show this screen.
     --cuda                                  use GPU
     --embed-pretrain                        use pretrain embedding weights
-    --embed-src=<file>                      pretrained src embedding weights file
-    --embed-tgt=<file>                      pretrained tgt embedding weights file
+    --embed-weights=<file>                  pretrained embedding weights src and tgt file
     --train-src=<file>                      train source file
     --train-tgt=<file>                      train target file
     --dev-src=<file>                        dev source file
@@ -95,8 +94,7 @@ class NMT(nn.Module):
         self.use_cuda = opt["use_cuda"]
 
         self.embed_pretrain = opt["embed_pretrain"]
-        self.embed_src_weights = opt["embed_src_weights"]
-        self.embed_tgt_weights = opt["embed_tgt_weights"]
+        self.embed_weights = opt["embed_weights"]
 
         # Build Encoder, Decoder, and Attention
         encoder_opt = deepcopy(opt)
@@ -128,8 +126,8 @@ class NMT(nn.Module):
             init.uniform_(param, -uniform_weight, uniform_weight)
 
         if self.embed_pretrain:
-            self.encoder.embed.from_pretrained(torch.tensor(self.embed_src_weights))
-            self.decoder.embed.from_pretrained(torch.tensor(self.embed_tgt_weights))
+            self.encoder.embed.from_pretrained(torch.tensor(self.embed_weights["src"]))
+            self.decoder.embed.from_pretrained(torch.tensor(self.embed_weights["tgt"]))
 
 
     def __call__(self, src_sents: List[List[str]], tgt_sents: List[List[str]]) -> Tensor:
@@ -413,8 +411,7 @@ def train(args: Dict[str, str]):
     model_save_path = os.path.join(work_dir, 'model.bin')
     optim_save_path = os.path.join(work_dir, 'optim.bin')
 
-    embed_src_weights = pickle.load(open(args['--embed-src'], 'rb'))
-    embed_tgt_weights = pickle.load(open(args['--embed-tgt'], 'rb'))
+    embed_weights = pickle.load(open(args['--embed-weights'], 'rb'))
 
     vocab = pickle.load(open(args['--vocab'], 'rb'))
     print('src vocab', len(vocab.src))
@@ -422,8 +419,7 @@ def train(args: Dict[str, str]):
 
     model_opt = {
         "embed_pretrain": bool(args['--embed-pretrain']),
-        "embed_src_weights": embed_src_weights,
-        "embed_tgt_weights": embed_tgt_weights,
+        "embed_weights": embed_weights,
         "embed_size": int(args['--embed-size']),
         "hidden_size": int(args['--hidden-size']),
         "num_layers": int(args['--num-layers']),
@@ -642,4 +638,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 

@@ -20,7 +20,7 @@ do
 
     echo decoding $src_file to $dec_file 
 
-    python nmt.py \
+    python embed_nmt.py \
         decode \
         --beam-size ${beam_size} \
         --max-decoding-time-step 100 \
