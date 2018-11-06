@@ -6,7 +6,7 @@ beam_size=$2
 data_dir=./data
 
 vocab="data/vocab.$l1-en.bin"
-work_dir="work_dir.$l1-en"
+work_dir="work_dir.$l1-en.embed"
 src_postfix=".en-$l1.$l1.txt"
 tgt_postfix=".en-$l1.en.txt"
 
@@ -20,7 +20,7 @@ do
 
     echo decoding $src_file to $dec_file 
 
-    python nmt.py \
+    python embed_nmt.py \
         decode \
         --beam-size ${beam_size} \
         --max-decoding-time-step 100 \
