@@ -126,8 +126,8 @@ class NMT(nn.Module):
             init.uniform_(param, -uniform_weight, uniform_weight)
 
         if self.embed_pretrain:
-            self.encoder.embed.from_pretrained(torch.tensor(self.embed_weights["src"]))
-            self.decoder.embed.from_pretrained(torch.tensor(self.embed_weights["tgt"]))
+            self.encoder.embed.from_pretrained(torch.tensor(self.embed_weights["src"]), freeze=False)
+            self.decoder.embed.from_pretrained(torch.tensor(self.embed_weights["tgt"]), freeze=False)
 
 
     def __call__(self, src_sents: List[List[str]], tgt_sents: List[List[str]]) -> Tensor:
