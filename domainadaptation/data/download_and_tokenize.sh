@@ -1,8 +1,7 @@
 #!/bin/bash
-# Download data from all domains
-# 1. Law(Acquis) 2. Medical(EMEA) 3. IT(GNOME, KDE, PHP, Ubuntu, OpenOffice) 4. Koran(Tanzil) 5. Subtitles
-#  Domain Options
-# law | medical | it | koran | subtitles
+# Usage: 
+#   ./download_and_tokenize.sh (law | medical | it | koran | subtitles)
+
 domain=$1
 
 if [ ! -d "mosesdecoder" ]; then
@@ -17,7 +16,8 @@ if [ "$domain" == "law" ]; then
 elif [ "$domain" == "medical" ]; then
     link="http://opus.nlpl.eu/download.php?f=EMEA/de-en.txt.zip"
 elif [ "$domain" == "it" ]; then
-    echo Hello World
+    echo Not implemented yet
+    exit 1
 elif [ "$domain" == "koran" ]; then
     link="http://opus.nlpl.eu/download.php?f=Tanzil/de-en.txt.zip"
 elif [ "$domain" == "subtitles" ]; then
