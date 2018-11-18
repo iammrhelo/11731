@@ -16,7 +16,8 @@ if [ "$domain" == "law" ]; then
 elif [ "$domain" == "medical" ]; then
     link="http://opus.nlpl.eu/download.php?f=EMEA/de-en.txt.zip"
 elif [ "$domain" == "it" ]; then
-    echo Not implemented yet
+    echo executing another script
+    ./download_it.sh 
     exit 1
 elif [ "$domain" == "koran" ]; then
     link="http://opus.nlpl.eu/download.php?f=Tanzil/de-en.txt.zip"
@@ -39,7 +40,7 @@ else
 fi
 
 # Extract only new files
-unzip -f $domain/download.zip -d $domain
+unzip -n $domain/download.zip -d $domain
 
 de_txt=$(ls $domain/*.de)
 en_txt=$(ls $domain/*.en)
