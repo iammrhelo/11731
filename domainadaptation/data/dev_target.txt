@@ -1,0 +1,3 @@
+./data/law.valid.en
+./data/medical.valid.en
+./data/it.valid.en

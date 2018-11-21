@@ -4,18 +4,19 @@
 A very basic implementation of neural machine translation
 
 Usage:
-    nmt.py train --train-src=<file> --train-tgt=<file> --dev-src=<file> --dev-tgt=<file> --vocab=<file> [options]
-    nmt.py decode [options] MODEL_PATH TEST_SOURCE_FILE OUTPUT_FILE
-    nmt.py decode [options] MODEL_PATH TEST_SOURCE_FILE TEST_TARGET_FILE OUTPUT_FILE
+    hypernmt.py train [options]
+    hypernmt.py train --train-src=<file> --train-tgt=<file> --dev-src=<file> --dev-tgt=<file> --vocab=<file> [options]
+    hypernmt.py decode [options] MODEL_PATH TEST_SOURCE_FILE OUTPUT_FILE
+    hypernmt.py decode [options] MODEL_PATH TEST_SOURCE_FILE TEST_TARGET_FILE OUTPUT_FILE
 
 Options:
     -h --help                               show this screen.
     --cuda                                  use GPU
-    --train-src=<file>                      train source file
-    --train-tgt=<file>                      train target file
-    --dev-src=<file>                        dev source file
-    --dev-tgt=<file>                        dev target file
-    --vocab=<file>                          vocab file
+    --train-src=<file>                      train source file [default: ./data/dev_source.txt]
+    --train-tgt=<file>                      train target file [default: ./data/dev_target.txt]
+    --dev-src=<file>                        dev source file [default: ./data/dev_source.txt]
+    --dev-tgt=<file>                        dev target file [default: ./data/dev_target.txt]
+    --vocab=<file>                          vocab file [default: ./data/vocab.all.bin]
     --seed=<int>                            seed [default: 0]
     --batch-size=<int>                      batch size [default: 32]
     --embed-size=<int>                      embedding size [default: 256]
@@ -24,8 +25,7 @@ Options:
     --bidirectional                         use bidirectional for encoder
     --attn-type=<str>                       type of attention to use [default: Concat]
     --mask-attn=<bool>                      mask src encodings [default: False]
-    --num-domains=<int>                     number of domains [default: 3]
-    --domain-embed-size=<int>               domain embedding size [default: 10]
+    --domain-embed-size=<int>               domain embedding size [default: 2]
     --relevant-information-size=<int>       relevant information size [default: 5]
     --clip-grad=<float>                     gradient clipping [default: 5.0]
     --log-every=<int>                       log every [default: 10]
@@ -36,11 +36,14 @@ Options:
     --beam-size=<int>                       beam size [default: 5]
     --optimizer=<str>                       optimizer [default: Adam]
     --lr=<float>                            learning rate [default: 0.001]
+    --label-smoothing=<float>               label smoothing parameter [default: 0.1]
     --uniform-init=<float>                  uniformly initialize all parameters [default: 0.1]
-    --save-to=<file>                        model save path
-    --valid-niter=<int>                     perform validation after how mtyping.Any iterations [default: 2000]
+    --save-to=<file>                        model save path [default: work_dir.debug]
+    --valid-niter=<int>                     perform validation after how mtyping.Any iterations [default: 10]
     --dropout=<float>                       dropout [default: 0.2]
     --max-decoding-time-step=<int>          maximum number of decoding time steps [default: 70]
+    --length-norm-alpha=<float>             beam search length normalization alpha parameter [default: 0.2]
+    --length-norm-beta=<float>              beam search length normalization beta parameter [default: 0.2]
     --model-path=<file>                     path to model file
 """
 
@@ -70,8 +73,10 @@ from torch.nn.utils import clip_grad_norm_
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from tqdm import tqdm
 
-from models import Encoder, GlobalAttention, LuongDecoder, CPG
-from utils import batch_iter, input_transpose, read_corpus
+from misc import LabelSmoothing
+from models import CPG, Encoder, GlobalAttention, LuongDecoder
+from utils import (batch_iter, hyper_batch_iter, hyper_read_corpus,
+                   input_transpose, read_corpus)
 from vocab import Vocab, VocabEntry
 
 Hypothesis = namedtuple('Hypothesis', ['value', 'score'])
@@ -99,6 +104,7 @@ class HyperNMT(nn.Module):
         self.relevant_information_size = opt["relevant_information_size"]
 
         self.vocab = opt["vocab"]
+        self.label_smoothing = opt["label_smoothing"]
         self.use_cuda = opt["use_cuda"]
 
         # Build Encoder, Decoder, and Attention and CPG
@@ -126,8 +132,8 @@ class HyperNMT(nn.Module):
         self.cpg = CPG(cpg_opt)
 
         # Evaluation
-        self.criterion = nn.CrossEntropyLoss(
-            ignore_index=self.vocab.tgt.pad_id, reduction="none")
+        self.criterion = LabelSmoothing(
+            size=len(self.vocab.tgt.size), padding_idx=self.vocab.tgt.pad_id, smoothing=self.label_smoothing)
 
         if self.use_cuda:
             self.cuda()
@@ -139,7 +145,7 @@ class HyperNMT(nn.Module):
         for param in self.parameters():
             init.uniform_(param, -uniform_weight, uniform_weight)
 
-    def __call__(self, src_sents: List[List[str]], tgt_sents: List[List[str]], domain: str = "it") -> Tensor:
+    def __call__(self, src_sents: List[List[str]], tgt_sents: List[List[str]], domain: int) -> Tensor:
         """
         take a mini-batch of source and target sentences, compute the log-likelihood of
         target sentences.
@@ -147,41 +153,28 @@ class HyperNMT(nn.Module):
         Args:
             src_sents: list of source sentence tokens
             tgt_sents: list of target sentence tokens, wrapped by `<s>` and `</s>`
-            str: name of domain
+            domain: domain index integer
         Returns:
             scores: a variable/tensor of shape (batch_size, ) representing the
                 log-likelihood of generating the gold-standard target sentence for
                 each example in the input batch
         """
-        # Train mode
 
-        # Generate encoder decoder LSTM weights with embeddings
-        domain_tensor = self.domain2tensor(domain)
+        # Contextual Parameter Generation
+        domain_tensor = torch.LongTensor([domain])
+        if self.use_cuda:
+            domain_tensor = domain_tensor.cuda()
         theta_enc, theta_dec = self.cpg.forward(domain_tensor)
-
         self.encoder.set_rnn_parameters(theta_enc)
         self.decoder.set_rnn_parameters(theta_dec)
 
+        # Encode
         src_encodings, src_lengths, decoder_init_state = self.encode(src_sents)
+
+        # Decode
         scores = self.decode(
             src_encodings, src_lengths, decoder_init_state, tgt_sents)
         return scores
-
-    def domain2tensor(self, domain: str) -> Tensor:
-        """
-        Hard code version of string to tensor
-        Takes a domain string, returns a tensor
-        """
-        domain_dict = {
-            "law": 0,
-            "medical": 1,
-            "it": 2
-        }
-        domain_id = domain_dict[domain]
-        domain_tensor = torch.LongTensor([domain_id])
-        if self.use_cuda:
-            domain_tensor = domain_tensor.cuda()
-        return domain_tensor
 
     def sents2tensor(self, sents: List[List[str]], vocab: typing.Any) -> Tensor:
         """
@@ -257,7 +250,7 @@ class HyperNMT(nn.Module):
         scores = loss.sum(dim=1)  # sum over length
         return scores
 
-    def beam_search(self, src_sent: List[str], beam_size: int = 5, max_decoding_time_step: int = 70) -> List[Hypothesis]:
+    def beam_search(self, src_sent: List[str], beam_size: int = 5, max_decoding_time_step: int = 70, alpha:float=0.2, beta:float=0.2) -> List[Hypothesis]:
         """
         Given a single source sentence, perform beam search
 
@@ -265,6 +258,8 @@ class HyperNMT(nn.Module):
             src_sent: a single tokenized source sentence
             beam_size: beam size
             max_decoding_time_step: maximum number of time steps to unroll the decoding RNN
+            alpha: length normalization factor
+            beta: length normaliziation factor 
 
         Returns:
             hypotheses: a list of hypothesis, each hypothesis has two fields:
@@ -313,6 +308,8 @@ class HyperNMT(nn.Module):
                     # Since we have only 1 element, squeeze to 1 dim
                     decoder_output = decoder_output.squeeze()
                     decoder_probs = F.softmax(decoder_output, dim=0)
+                    
+                    # Apply length normalization here
                     scores = decoder_probs.log()  # log score for addition
 
                     # Top beam_size candidates and move to numpy
@@ -349,12 +346,12 @@ class HyperNMT(nn.Module):
             hypotheses.append(hyp)
         return hypotheses
 
-    def evaluate_ppl(self, dev_data: List[typing.Any], batch_size: int = 16):
+    def hyper_evaluate_ppl(self, dev_data: List[typing.Any], batch_size: int = 16):
         """
         Evaluate perplexity on dev sentences
 
         Args:
-            dev_data: a list of dev sentences
+            dev_data: a list of domain data, which are list of sentences
             batch_size: batch size
 
         Returns:
@@ -368,12 +365,15 @@ class HyperNMT(nn.Module):
         # by the NN library to signal the backend to not to keep gradient information
         # e.g., `torch.no_grad()`
         with torch.no_grad():
-            for src_sents, tgt_sents in batch_iter(dev_data, batch_size):
-                loss = self.__call__(src_sents, tgt_sents).sum()
-                cum_loss += loss
-                # omitting the leading `<s>`
-                tgt_word_num_to_predict = sum(len(s[1:]) for s in tgt_sents)
-                cum_tgt_words += tgt_word_num_to_predict
+            for domain_idx, domain_dev_data in enumerate(dev_data):
+                for src_sents, tgt_sents in batch_iter(domain_dev_data, batch_size):
+                    loss = self.__call__(
+                        src_sents, tgt_sents, domain_idx).sum()
+                    cum_loss += loss
+                    # omitting the leading `<s>`
+                    tgt_word_num_to_predict = sum(
+                        len(s[1:]) for s in tgt_sents)
+                    cum_tgt_words += tgt_word_num_to_predict
 
             ppl = np.exp(cum_loss / cum_tgt_words)
 
@@ -425,14 +425,19 @@ def compute_corpus_level_bleu_score(references: List[List[str]], hypotheses: Lis
 
 
 def train(args: Dict[str, str]):
-    train_data_src = read_corpus(args['--train-src'], source='src')
-    train_data_tgt = read_corpus(args['--train-tgt'], source='tgt')
+    train_data_src = hyper_read_corpus(args['--train-src'], source='src')
+    train_data_tgt = hyper_read_corpus(args['--train-tgt'], source='tgt')
 
-    dev_data_src = read_corpus(args['--dev-src'], source='src')
-    dev_data_tgt = read_corpus(args['--dev-tgt'], source='tgt')
+    dev_data_src = hyper_read_corpus(args['--dev-src'], source='src')
+    dev_data_tgt = hyper_read_corpus(args['--dev-tgt'], source='tgt')
 
     train_data = list(zip(train_data_src, train_data_tgt))
     dev_data = list(zip(dev_data_src, dev_data_tgt))
+
+    assert all(len(d) == 2 for d in train_data)
+    assert all(len(d) == 2 for d in dev_data)
+    assert len(train_data) == len(dev_data)
+    num_domains = len(train_data)
 
     train_batch_size = int(args['--batch-size'])
     clip_grad = float(args['--clip-grad'])
@@ -457,10 +462,11 @@ def train(args: Dict[str, str]):
         "bidirectional": bool(args['--bidirectional']),
         "attn_type": args['--attn-type'],
         "mask_attn": args['--mask-attn'] == "True",
-        "num_domains": int(args['--num-domains']),
+        "num_domains": num_domains,
         "domain_embed_size": int(args['--domain-embed-size']),
         "relevant_information_size": int(args['--relevant-information-size']),
         "vocab": vocab,
+        "label_smoothing": float(args['--label-smoothing']),
         "use_cuda": bool(args["--cuda"])
     }
     if not torch.cuda.is_available():
@@ -484,139 +490,142 @@ def train(args: Dict[str, str]):
     cumulative_examples = report_examples = epoch = valid_num = 0
     hist_valid_scores = []
     train_time = begin_time = time.time()
-    print('begin Maximum Likelihood training')
+    print("begin Maximum Likelihood training")
 
-    while True:
-        epoch += 1
+    # Never ending sampling
+    for domain_idx, (src_sents, tgt_sents) in hyper_batch_iter(train_data, batch_size=train_batch_size, shuffle=True):
 
-        for src_sents, tgt_sents in batch_iter(train_data, batch_size=train_batch_size, shuffle=True):
-            model.train()
-            train_iter += 1
+        model.train()
+        train_iter += 1
 
-            batch_size = len(src_sents)
+        batch_size = len(src_sents)
 
-            optimizer.zero_grad()
-            # (batch_size)
-            scores = model(src_sents, tgt_sents)
-            loss = scores.sum()
+        optimizer.zero_grad()
+        # (batch_size)
+        scores = model(src_sents, tgt_sents, domain_idx)
+        loss = scores.sum()
 
-            # Optimizer here
-            loss.backward()
-            clip_grad_norm_(model.parameters(), clip_grad)
-            optimizer.step()
+        # Optimizer here
+        loss.backward()
+        clip_grad_norm_(model.parameters(), clip_grad)
+        optimizer.step()
 
-            if model.use_cuda:
-                report_loss += loss.data.cpu().numpy()
-                cum_loss += loss.data.cpu().numpy()
-            else:
-                report_loss += loss.data.numpy()
-                cum_loss += loss.data.numpy()
+        if model.use_cuda:
+            report_loss += loss.data.cpu().numpy()
+            cum_loss += loss.data.cpu().numpy()
+        else:
+            report_loss += loss.data.numpy()
+            cum_loss += loss.data.numpy()
 
-            tgt_words_num_to_predict = sum(
-                len(s[1:]) for s in tgt_sents)  # omitting leading `<s>`
-            report_tgt_words += tgt_words_num_to_predict
-            cumulative_tgt_words += tgt_words_num_to_predict
+        tgt_words_num_to_predict = sum(
+            len(s[1:]) for s in tgt_sents)  # omitting leading `<s>`
+        report_tgt_words += tgt_words_num_to_predict
+        cumulative_tgt_words += tgt_words_num_to_predict
 
-            report_examples += batch_size
-            cumulative_examples += batch_size
+        report_examples += batch_size
+        cumulative_examples += batch_size
 
-            if train_iter % log_every == 0:
-                print('epoch %d, iter %d, avg. loss %.2f, avg. ppl %.2f '
-                      'cum. examples %d, speed %.2f words/sec, time elapsed %.2f sec' % (epoch, train_iter,
-                                                                                         report_loss / report_examples,
-                                                                                         math.exp(
-                                                                                             report_loss / report_tgt_words),
-                                                                                         cumulative_examples,
-                                                                                         report_tgt_words /
-                                                                                         (time.time(
-                                                                                         ) - train_time),
-                                                                                         time.time() - begin_time), file=sys.stderr)
+        if train_iter % log_every == 0:
+            print('iter %d, avg. loss %.2f, avg. ppl %.2f '
+                  'cum. examples %d, speed %.2f words/sec, time elapsed %.2f sec' % (train_iter,
+                                                                                     report_loss / report_examples,
+                                                                                     math.exp(
+                                                                                         report_loss / report_tgt_words),
+                                                                                     cumulative_examples,
+                                                                                     report_tgt_words /
+                                                                                     (time.time(
+                                                                                     ) - train_time),
+                                                                                     time.time() - begin_time), file=sys.stderr)
 
-                train_time = time.time()
-                report_loss = report_tgt_words = report_examples = 0.
+            train_time = time.time()
+            report_loss = report_tgt_words = report_examples = 0.
 
-            # the following code performs validation on dev set, and controls the learning schedule
-            # if the dev score is better than the last check point, then the current model is saved.
-            # otherwise, we allow for that performance degeneration for up to `--patience` times;
-            # if the dev score does not increase after `--patience` iterations, we reload the previously
-            # saved best model (and the state of the optimizer), halve the learning rate and continue
-            # training. This repeats for up to `--max-num-trial` times.
-            if train_iter % valid_niter == 0:
-                print('epoch %d, iter %d, cum. loss %.2f, cum. ppl %.2f cum. examples %d' % (epoch, train_iter,
-                                                                                             cum_loss / cumulative_examples,
-                                                                                             np.exp(
-                                                                                                 cum_loss / cumulative_tgt_words),
-                                                                                             cumulative_examples), file=sys.stderr)
+        # the following code performs validation on dev set, and controls the learning schedule
+        # if the dev score is better than the last check point, then the current model is saved.
+        # otherwise, we allow for that performance degeneration for up to `--patience` times;
+        # if the dev score does not increase after `--patience` iterations, we reload the previously
+        # saved best model (and the state of the optimizer), halve the learning rate and continue
+        # training. This repeats for up to `--max-num-trial` times.
+        if train_iter % valid_niter == 0:
+            print('iter %d, cum. loss %.2f, cum. ppl %.2f cum. examples %d' % (train_iter,
+                                                                               cum_loss / cumulative_examples,
+                                                                               np.exp(
+                                                                                   cum_loss / cumulative_tgt_words),
+                                                                               cumulative_examples), file=sys.stderr)
 
-                cum_loss = cumulative_examples = cumulative_tgt_words = 0.
-                valid_num += 1
+            cum_loss = cumulative_examples = cumulative_tgt_words = 0.
+            valid_num += 1
 
-                print('begin validation ...', file=sys.stderr)
-                model.eval()
-                # compute dev. ppl and bleu
-                # dev batch size can be a bit larger
-                dev_ppl = model.evaluate_ppl(dev_data, batch_size=32)
-                valid_metric = -dev_ppl
+            print('begin validation ...', file=sys.stderr)
+            model.eval()
+            # compute dev. ppl and bleu
+            # dev batch size can be a bit larger
 
-                print('validation: iter %d, dev. ppl %f' %
-                      (train_iter, dev_ppl), file=sys.stderr)
+            dev_ppl = model.hyper_evaluate_ppl(dev_data, batch_size=32)
 
-                is_better = len(hist_valid_scores) == 0 or valid_metric > max(
-                    hist_valid_scores)
-                hist_valid_scores.append(valid_metric)
+            valid_metric = -dev_ppl
 
-                if is_better:
-                    patience = 0
+            print('validation: iter %d, dev. ppl %f' %
+                  (train_iter, dev_ppl), file=sys.stderr)
+
+            is_better = len(hist_valid_scores) == 0 or valid_metric > max(
+                hist_valid_scores)
+            hist_valid_scores.append(valid_metric)
+
+            if is_better:
+                patience = 0
+                print(
+                    'save currently the best model to [%s]' % model_save_path, file=sys.stderr)
+                model.save(model_save_path)
+
+                # You may also save the optimizer's state
+                torch.save(optimizer, optim_save_path)
+            elif patience < int(args['--patience']):
+                patience += 1
+                print('hit patience %d' % patience, file=sys.stderr)
+
+                if patience == int(args['--patience']):
+                    num_trial += 1
+                    print('hit #%d trial' % num_trial, file=sys.stderr)
+                    if num_trial == int(args['--max-num-trial']):
+                        print('early stop!', file=sys.stderr)
+                        exit(0)
+
+                    # decay learning rate, and restore from previously best checkpoint
+                    lr = lr * float(args['--lr-decay'])
                     print(
-                        'save currently the best model to [%s]' % model_save_path, file=sys.stderr)
-                    model.save(model_save_path)
+                        'load previously best model and decay learning rate to %f' % lr, file=sys.stderr)
 
-                    # You may also save the optimizer's state
-                    torch.save(optimizer, optim_save_path)
-                elif patience < int(args['--patience']):
-                    patience += 1
-                    print('hit patience %d' % patience, file=sys.stderr)
+                    # load model`
+                    model = HyperNMT.load(
+                        model_save_path, use_cuda=bool(args["--cuda"]))
+                    print('restore parameters of the optimizers',
+                          file=sys.stderr)
 
-                    if patience == int(args['--patience']):
-                        num_trial += 1
-                        print('hit #%d trial' % num_trial, file=sys.stderr)
-                        if num_trial == int(args['--max-num-trial']):
-                            print('early stop!', file=sys.stderr)
-                            exit(0)
+                    # You may also need to load the state of the optimizer saved before
+                    optimizer = torch.load(optim_save_path)
+                    for param_group in optimizer.param_groups:
+                        param_group['lr'] = lr
 
-                        # decay learning rate, and restore from previously best checkpoint
-                        lr = lr * float(args['--lr-decay'])
-                        print(
-                            'load previously best model and decay learning rate to %f' % lr, file=sys.stderr)
+                    # reset patience
+                    patience = 0
 
-                        # load model`
-                        model = NMT.load(
-                            model_save_path, use_cuda=bool(args["--cuda"]))
-                        print('restore parameters of the optimizers',
-                              file=sys.stderr)
-                        # You may also need to load the state of the optimizer saved before
-                        optimizer = torch.load(optim_save_path)
-                        for param_group in optimizer.param_groups:
-                            param_group['lr'] = lr
-
-                        # reset patience
-                        patience = 0
-
-                if epoch == int(args['--max-epoch']):
-                    print('reached maximum number of epochs!', file=sys.stderr)
-                    exit(0)
-
-                gc.collect()
+            """
+            if epoch == int(args['--max-epoch']):
+                print('reached maximum number of epochs!', file=sys.stderr)
+                exit(0)
+            """
+            gc.collect()
 
 
-def beam_search(model: HyperNMT, test_data_src: List[List[str]], beam_size: int, max_decoding_time_step: int) -> List[List[Hypothesis]]:
+def beam_search(model: HyperNMT, test_data_src: List[List[str]], beam_size: int, max_decoding_time_step: int, alpha: float, beta: float) -> List[List[Hypothesis]]:
     was_training = model.training
 
     hypotheses = []
     try:
         for src_sent in tqdm(test_data_src, desc='Decoding', file=sys.stdout):
             example_hyps = model.beam_search(
-                src_sent, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step)
+                src_sent, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step, alpha=alpha, beta=beta)
             hypotheses.append(example_hyps)
     except KeyboardInterrupt:
         print("Keyboard interrupted!")
@@ -636,11 +645,14 @@ def decode(args: Dict[str, str]):
 
     print(f"load model from {args['MODEL_PATH']}", file=sys.stderr)
     use_cuda = bool(args['--cuda'])
-    model = NMT.load(args['MODEL_PATH'], use_cuda)
+    model = HyperNMT.load(args['MODEL_PATH'], use_cuda)
     model.eval()
     hypotheses = beam_search(model, test_data_src,
                              beam_size=int(args['--beam-size']),
-                             max_decoding_time_step=int(args['--max-decoding-time-step']))
+                             max_decoding_time_step=int(
+                                 args['--max-decoding-time-step']),
+                             alpha=float(args['--length-norm-alpha']),
+                             beta=float(args["--length-norm-beta"]))
 
     if args['TEST_TARGET_FILE']:
         top_hypotheses = [hyps[0] for hyps in hypotheses]

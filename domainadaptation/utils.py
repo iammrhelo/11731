@@ -54,23 +54,44 @@ def batch_iter(data, batch_size, shuffle=False):
         yield src_sents, tgt_sents
 
 
-def hyper_batch_iter(data, batch_size, shuffle=False):
+def hyper_read_corpus(file_path, source):
+    datas = []
+    with open(file_path, 'r') as fin:
+        for line in fin.readlines():
+            domain_file_path = line.strip()
+            domain_data = read_corpus(domain_file_path, source)
+            datas.append(domain_data)
+    return datas
+
+
+def hyper_batch_iter(datas, batch_size, shuffle=False):
     """
-    Given a list of examples, shuffle and slice them into mini-batches
+    Hyper Batch Iterator, implements the following sampling strategies
+    Only used in training
+
+    1. Randomly sample language pair and randomly sample a batch from that language pair => no epochs
+    2. Randomly sample languages pairs until all train data is visited => epoch
+
+    Args:
+        datas: list of domain data
     """
-    batch_num = math.ceil(len(data) / batch_size)
-    index_array = list(range(len(data)))
+    assert shuffle == True
+    domain_size = len(datas)
 
-    if shuffle:
-        np.random.shuffle(index_array)
+    # Create generators
+    domain_iters = [batch_iter(
+        data, batch_size, shuffle) for data in datas]
 
-    for i in range(batch_num):
-        indices = index_array[i * batch_size: (i + 1) * batch_size]
-        examples = [data[idx] for idx in indices]
+    while True:
 
-        examples = sorted(examples, key=lambda e: len(e[0]), reverse=True)
-        src_sents = [e[0] for e in examples]
-        tgt_sents = [e[1] for e in examples]
-        src_langs = [e[2] for e in examples]
+        idx = np.random.choice(domain_size)
 
-        yield src_sents, tgt_sents, src_langs
+        # Yield next batch
+        try:
+            src_sents, tgt_sents = next(domain_iters[idx])
+        except StopIteration:
+            # Recreate generator
+            domain_iters[idx] = batch_iter(datas[idx], batch_size, shuffle)
+            src_sents, tgt_sents = next(domain_iters[idx])
+        finally:
+            yield idx, (src_sents, tgt_sents)

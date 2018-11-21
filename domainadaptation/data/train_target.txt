@@ -1,0 +1,3 @@
+./data/law.train.en
+./data/medical.train.en
+./data/it.train.en
