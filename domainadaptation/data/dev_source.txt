@@ -1,3 +1,0 @@
-./data/law.valid.de
-./data/medical.valid.de
-./data/it.valid.de

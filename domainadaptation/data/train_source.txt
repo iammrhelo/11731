@@ -1,3 +1,0 @@
-./data/law.train.de
-./data/medical.train.de
-./data/it.train.de

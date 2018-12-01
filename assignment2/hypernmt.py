@@ -23,13 +23,15 @@ Options:
     --num-layers=<int>                      number of layers for encoder and decoder [default: 1]
     --bidirectional                         use bidirectional for encoder
     --lang1=<str>                           language one identity
-    --ltarget=<str>                         language one identity
+    --lang2=<str>                           language one identity
+    --ltarget=<str>                         language one identity [default: en]
+    --lang-embed-size=<int>                 language one identity[default: 10]
     --attn-type=<str>                       type of attention to use [default: Concat]
     --mask-attn=<bool>                      mask src encodings [default: False]
     --clip-grad=<float>                     gradient clipping [default: 5.0]
     --log-every=<int>                       log every [default: 10]
     --max-epoch=<int>                       max epoch [default: 30]
-    --patience=<int>                        wait for how mtyping.Any iterations to decay learning rate [default: 1]
+    --patience=<int>                        wait for how mtyping.Any iterations to decay learning rate [default: 5]
     --max-num-trial=<int>                   terminate training after how mtyping.Any trials [default: 5]
     --lr-decay=<float>                      learning rate decay [default: 0.5]
     --beam-size=<int>                       beam size [default: 5]
@@ -42,7 +44,6 @@ Options:
     --max-decoding-time-step=<int>          maximum number of decoding time steps [default: 70]
     --model-path=<file>                     path to model file
 """
-
 import math
 import gc
 import os
@@ -99,7 +100,7 @@ class HyperNMT(nn.Module):
         encoder_opt["num_embeddings"] = len(self.vocab.src)
         encoder_opt["lang_embedding_size"] = self.lang_embedding_size
 
-        self.lang_embed = torch.nn.Embedding(1, self.lang_embedding_size)
+        self.lang_embed = torch.nn.Embedding(2, self.lang_embedding_size)
         # lang1_source = torch.LongTensor([0])
         # lang1_embed = self.lang_embed(lang1_source)
         # print(lang1_embed)
@@ -147,7 +148,6 @@ class HyperNMT(nn.Module):
         # Train mode
         batch_lang = torch.LongTensor([src_langs[0]])
         if self.use_cuda:
-            print(batch_lang)
             batch_lang = batch_lang.cuda()
         batch_lang_embed = self.lang_embed(batch_lang)
 
@@ -399,24 +399,55 @@ def compute_corpus_level_bleu_score(references: List[List[str]], hypotheses: Lis
 
 
 def train(args: Dict[str, str]):
-    train_data_src = read_corpus(args['--train-src'], source='src')
-    train_data_tgt = read_corpus(args['--train-tgt'], source='tgt')
+    train_low_data_src = read_corpus(args['--train-src'], source='src')
+    train_low_data_tgt = read_corpus(args['--train-tgt'], source='tgt')
 
-    dev_data_src = read_corpus(args['--dev-src'], source='src')
-    dev_data_tgt = read_corpus(args['--dev-tgt'], source='tgt')
+    dev_low_data_src = read_corpus(args['--dev-src'], source='src')
+    dev_low_data_tgt = read_corpus(args['--dev-tgt'], source='tgt')
 
-    lang1 = args['--lang1']
+    l1 = args['--lang1']
+    l2 = args['--lang2']
     ltarget = args['--ltarget']
-    lang_embedding_size = 13
 
-    num_train = len(train_data_src)
-    num_dev = len(dev_data_src)
+    lang_embedding_size = int(args['--lang-embed-size'])
 
-    train_lang = [0 for i in range(num_train)]
-    dev_lang = [0 for i in range(num_dev)]
+    lang_map = {}
+    lang_map[l1] = 0
+    lang_map[l2] = 1
 
-    train_data = list(zip(train_data_src, train_data_tgt, train_lang))
-    dev_data = list(zip(dev_data_src, dev_data_tgt, dev_lang))
+    num_low_train = len(train_low_data_src)
+    num_low_dev = len(dev_low_data_src)
+
+    train_low_lang = [0 for i in range(num_low_train)]
+    dev_low_lang = [0 for i in range(num_low_dev)]
+
+    train_low_data = list(zip(train_low_data_src, train_low_data_tgt, train_low_lang))
+    dev_low_data = list(zip(dev_low_data_src, dev_low_data_tgt, dev_low_lang))
+
+
+    train_high_src  =f"data/train.en-{l2}.{l2}.txt"
+    train_high_tgt  =f"data/train.en-{l2}.en.txt"
+    dev_high_src    =f"data/dev.en-{l2}.{l2}.txt"
+    dev_high_tgt    =f"data/dev.en-{l2}.en.txt"
+    test_high_src   =f"data/dev.en-{l2}.{l2}.txt"
+    test_high_tgt   =f"data/dev.en-{l2}.en.txt"
+
+    train_high_data_src = read_corpus(train_high_src, source='src')
+    train_high_data_tgt = read_corpus(train_high_tgt, source='tgt')
+    dev_high_data_src = read_corpus(dev_high_src, source='src')
+    dev_high_data_tgt = read_corpus(dev_high_tgt, source='tgt')
+
+    num_high_train = len(train_high_data_src)
+    num_high_dev = len(dev_high_data_src)
+
+    train_high_lang = [1 for i in range(num_high_train)]
+    dev_high_lang = [1 for i in range(num_high_dev)]
+
+    train_high_data = list(zip(train_high_data_src, train_high_data_tgt, train_high_lang))
+    dev_high_data = list(zip(dev_high_data_src, dev_high_data_tgt, dev_high_lang))
+
+
+
 
     train_batch_size = int(args['--batch-size'])
     clip_grad = float(args['--clip-grad'])
@@ -430,6 +461,8 @@ def train(args: Dict[str, str]):
     optim_save_path = os.path.join(work_dir, 'optim.bin')
 
     vocab = pickle.load(open(args['--vocab'], 'rb'))
+
+    print(type(vocab))
     print('src vocab', len(vocab.src))
     print('tgt vocab', len(vocab.tgt))
 
@@ -471,7 +504,24 @@ def train(args: Dict[str, str]):
     while True:
         epoch += 1
 
-        for src_sents, tgt_sents, src_langs in hyper_batch_iter(train_data, batch_size=train_batch_size, shuffle=True):
+        low_batches = round(len(train_low_data)/train_batch_size)
+        high_batches = round(len(train_high_data)/train_batch_size)
+        print("Low and High", low_batches+high_batches)
+        batch_order = [0]*low_batches + [1]*high_batches
+        np.random.shuffle(batch_order)
+
+        train_low_batches = hyper_batch_iter(train_low_data, batch_size=train_batch_size, shuffle=True)
+        train_high_batches = hyper_batch_iter(train_high_data, batch_size=train_batch_size, shuffle=True)
+        for batch in batch_order:
+            if batch == 0:
+                src_sents, tgt_sents, src_langs = next(train_low_batches)
+                #low
+            elif batch == 1:
+                #high
+                src_sents, tgt_sents, src_langs = next(train_high_batches)
+
+
+        # for src_sents, tgt_sents, src_langs in hyper_batch_iter(train_data, batch_size=train_batch_size, shuffle=True):
             model.train()
             train_iter += 1
 
@@ -513,7 +563,7 @@ def train(args: Dict[str, str]):
                                                                                          (time.time(
                                                                                          ) - train_time),
                                                                                          time.time() - begin_time), file=sys.stderr)
-
+                sys.stdout.flush()
                 train_time = time.time()
                 report_loss = report_tgt_words = report_examples = 0.
 
@@ -537,7 +587,7 @@ def train(args: Dict[str, str]):
                 model.eval()
                 # compute dev. ppl and bleu
                 # dev batch size can be a bit larger
-                dev_ppl = model.evaluate_ppl(dev_data, batch_size=32)
+                dev_ppl = model.evaluate_ppl(dev_low_data, batch_size=32)
                 valid_metric = -dev_ppl
 
                 print('validation: iter %d, dev. ppl %f' %

@@ -16,7 +16,7 @@ a=$(wc -l < "${train_src}")
 b=$batch_size
 valid_niter=$((a%b?a/b+1:a/b))
 
-python hypernmt.py \
+/remote/bones/user/dspokoyn/anaconda3/bin/python3.7 hypernmt.py \
     train \
     --cuda \
     --vocab ${vocab} \

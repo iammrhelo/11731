@@ -7,7 +7,7 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 class CPG(nn.Module):
     """
     Contextual Parameter Generator for Domain Adaptation
-    Generators weights for Encoder LSTM and Decoder LSTM 
+    Generators weights for Encoder LSTM and Decoder LSTM
     """
 
     def __init__(self, opt):
@@ -37,7 +37,7 @@ class CPG(nn.Module):
     def forward(self, d):
         """
         Generates parameters(theta) for encoder, attention and decoder
-        Weights are generated for a single batch, therefore all the data 
+        Weights are generated for a single batch, therefore all the data
         in the batch should be in the same domain
         """
         assert d.dim() == 1
@@ -48,6 +48,157 @@ class CPG(nn.Module):
         theta_dec = self.W_dec(self.P_dec(embed_d))
 
         return theta_enc, theta_dec
+
+
+
+def lstm_cell(input, hidden, w_ih, w_hh, b_ih, b_hh):
+    # type: (Tensor, Tuple[Tensor, Tensor], Tensor, Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor]
+    hx, cx = hidden
+
+    gates = torch.mm(input, w_ih.t()) + torch.mm(hx, w_hh.t()) + b_ih + b_hh
+
+    ingate, forgetgate, cellgate, outgate = gates.chunk(4, 1)
+
+    ingate = torch.sigmoid(ingate)
+    forgetgate = torch.sigmoid(forgetgate)
+    cellgate = torch.tanh(cellgate)
+    outgate = torch.sigmoid(outgate)
+
+    cy = (forgetgate * cx) + (ingate * cellgate)
+    hy = outgate * torch.tanh(cy)
+
+    return hy, cy
+
+class HyperEncoder(nn.Module):
+    """
+    A basic encoder implementation with options
+    """
+
+    def __init__(self, opt):
+        super(HyperEncoder, self).__init__()
+        self.num_embeddings = opt["num_embeddings"]
+        self.embed_size = opt["embed_size"]
+        self.hidden_size = opt["hidden_size"]
+        self.num_layers = opt["num_layers"]
+        self.dropout_rate = opt["dropout_rate"]
+        self.bidirectional = opt["bidirectional"]
+        self.lang_embed_size = opt["lang_embed_size"]
+
+        # Build n
+        self.embed = nn.Embedding(self.num_embeddings, self.embed_size)
+
+        self.c_init = torch.nn.Parameter(torch.zeros(1, self.hidden_size))
+        self.h_init = torch.nn.Parameter(torch.zeros(1, self.hidden_size))
+
+        if self.bidirectional:
+            self.c_init_reverse = torch.nn.Parameter(torch.zeros(1, self.hidden_size))
+            self.h_init_reverse = torch.nn.Parameter(torch.zeros(1, self.hidden_size))
+
+        self.hyper_w_ih_l0 = nn.Linear(self.lang_embed_size, 4*self.hidden_size*self.embed_size)
+        self.hyper_w_hh_l0 = nn.Linear(self.lang_embed_size, 4*self.hidden_size*self.hidden_size)
+        self.hyper_b_ih_l0 = nn.Linear(self.lang_embed_size, 4*self.hidden_size)
+        self.hyper_b_hh_l0 = nn.Linear(self.lang_embed_size, 4*self.hidden_size)
+        if self.bidirectional:
+            self.hyper_w_ih_l0_reverse = nn.Linear(self.lang_embed_size, 4*self.hidden_size*self.embed_size)
+            self.hyper_w_hh_l0_reverse = nn.Linear(self.lang_embed_size, 4*self.hidden_size*self.hidden_size)
+            self.hyper_b_ih_l0_reverse = nn.Linear(self.lang_embed_size, 4*self.hidden_size)
+            self.hyper_b_hh_l0_reverse = nn.Linear(self.lang_embed_size, 4*self.hidden_size)
+
+
+        self.rnn = nn.LSTM(
+            self.embed_size,
+            self.hidden_size,
+            self.num_layers,
+            dropout=self.dropout_rate,
+            bidirectional=self.bidirectional)
+
+
+
+    def hyper_rnn_forward(self, input, lengths, batch_lang):
+        input = input.permute(1,0,2)
+        batch_size = input.size()[0]
+        # print("batch_lang", batch_lang, batch_lang.size())
+        w_ih = self.hyper_w_ih_l0(batch_lang).view(4*self.hidden_size, -1)
+        w_hh = self.hyper_w_hh_l0(batch_lang).view(4*self.hidden_size, -1)
+        b_ih = self.hyper_b_ih_l0(batch_lang).view(4*self.hidden_size)
+        b_hh = self.hyper_b_hh_l0(batch_lang).view(4*self.hidden_size)
+
+        w_ih_reverse = self.hyper_w_ih_l0_reverse(batch_lang).view(4*self.hidden_size, -1)
+        w_hh_reverse = self.hyper_w_hh_l0_reverse(batch_lang).view(4*self.hidden_size, -1)
+        b_ih_reverse = self.hyper_b_ih_l0_reverse(batch_lang).view(4*self.hidden_size)
+        b_hh_reverse = self.hyper_b_hh_l0_reverse(batch_lang).view(4*self.hidden_size)
+
+
+        max_seq_len = input.size()[1]
+
+        output_forward = []
+        output_reverse = []
+
+        hy_forward, cy_forward = self.h_init, self.c_init
+        hy_reverse, cy_reverse = self.h_init_reverse, self.c_init_reverse
+        output_cell_forward = []
+        for i in range(max_seq_len):
+            hy_forward, cy_forward = lstm_cell(input[:,i,:], (hy_forward, cy_forward), w_ih, w_hh, b_ih, b_hh)
+
+            hy_reverse, cy_reverse = lstm_cell(input[:,max_seq_len-i-1,:], (hy_reverse, cy_reverse), w_ih_reverse, w_hh_reverse, b_ih_reverse, b_hh_reverse)
+            output_forward.append(hy_forward)
+            output_reverse.append(hy_reverse)
+            output_cell_forward.append(cy_forward)
+
+        output_forward_hyper = torch.stack(output_forward, dim=1)
+        output_reverse_hyper = torch.stack(output_reverse, dim=1)
+
+        output_cell_forward = torch.stack(output_cell_forward, dim=1)
+
+
+        final_forward = []
+        final_reverse = []
+        final_cell_forward = []
+        for i in range(batch_size):
+            final_forward.append(output_forward_hyper[i, lengths[i]-1,:])
+            final_cell_forward.append(output_cell_forward[i, lengths[i]-1,:])
+
+        #     final_reverse.append(output_reverse_hyper[i, lengths[i]-1,:])
+
+        final_forward = torch.stack(final_forward, dim=0)
+        final_cell_forward = torch.stack(final_cell_forward, dim=0)
+        # final_reverse = torch.stack(final_reverse, dim=0)
+
+
+        final_output = torch.cat((output_forward_hyper, output_reverse_hyper), dim=2)
+
+        return final_output.permute(1,0,2), (final_forward.unsqueeze(dim=0), final_cell_forward.unsqueeze(dim=0))
+
+    def forward(self, x, lengths, batch_lang, hidden=None):
+        embed_x = self.embed(x)
+        # hidden should corresponding to the hidden state at lengths
+
+        # HYPER = False
+        HYPER = True
+
+        if HYPER:
+            output, hidden = self.hyper_rnn_forward(embed_x, lengths, batch_lang)
+
+        else:
+            packed_embed_x = pack_padded_sequence(embed_x, lengths)
+            packed_output, hidden = self.rnn(packed_embed_x, hidden)
+            output, _ = pad_packed_sequence(packed_output)
+
+            if self.bidirectional:
+                # We only give the forward hidden states here
+                def get_forward_op(h):
+                    _, batch_size, hidden_size = h.shape
+                    sep_h = h.view(self.num_layers, 2, batch_size, hidden_size)
+                    return sep_h[:, 0, :, :]
+
+                hidden = tuple(map(get_forward_op, hidden))
+
+        # print(output.size(), "hidden", hidden[0].size(), hidden[1].size())#torch.Size([69, 64, 1024]) hidden torch.Size([1, 64, 512]) torch.Size([1, 64, 512])
+
+        return output, hidden
+
+
+
 
 
 class Encoder(nn.Module):
@@ -121,6 +272,152 @@ class Encoder(nn.Module):
 
         return output, hidden
 
+class HyperLuongDecoder(nn.Module):
+    """
+    An attention based decoder that also takes in encoder_outputs
+    """
+
+    def __init__(self, opt, attn):
+        super(LuongDecoder, self).__init__()
+        self.num_embeddings = opt["num_embeddings"]
+        self.embed_size = opt["embed_size"]
+        self.hidden_size = opt["hidden_size"]
+        self.num_layers = opt["num_layers"]
+        self.dropout_rate = opt["dropout_rate"]
+
+        # Build layers
+        self.embed = nn.Embedding(self.num_embeddings, self.embed_size)
+
+        self.c_init = torch.nn.Parameter(torch.zeros(1, self.hidden_size))
+        self.h_init = torch.nn.Parameter(torch.zeros(1, self.hidden_size))
+
+        self.hyper_w_ih_l0 = nn.Linear(self.lang_embed_size, 4*self.hidden_size*self.embed_size)
+        self.hyper_w_hh_l0 = nn.Linear(self.lang_embed_size, 4*self.hidden_size*self.hidden_size)
+        self.hyper_b_ih_l0 = nn.Linear(self.lang_embed_size, 4*self.hidden_size)
+        self.hyper_b_hh_l0 = nn.Linear(self.lang_embed_size, 4*self.hidden_size)
+
+        self.rnn = nn.LSTM(
+            self.embed_size,
+            self.hidden_size,
+            self.num_layers,
+            dropout=self.dropout_rate)
+
+        # Global Attention: Concat scoring function
+        self.attn = attn
+
+        # Final output prediction
+        if self.attn.attn_type == "Concat":
+            concat_size = self.attn.input_size
+        else:
+            concat_size = self.attn.input_size + self.attn.output_size
+
+        # attentional layer
+        self.c2h = nn.Linear(concat_size, self.hidden_size)
+        # output layer
+        self.h2o = nn.Linear(self.hidden_size, self.num_embeddings)
+
+    def hyper_rnn_forward(self, input, lengths, batch_lang, init_hidden):
+        input = input.permute(1,0,2)
+        batch_size = input.size()[0]
+        # print("batch_lang", batch_lang, batch_lang.size())
+        w_ih = self.hyper_w_ih_l0(batch_lang).view(4*self.hidden_size, -1)
+        w_hh = self.hyper_w_hh_l0(batch_lang).view(4*self.hidden_size, -1)
+        b_ih = self.hyper_b_ih_l0(batch_lang).view(4*self.hidden_size)
+        b_hh = self.hyper_b_hh_l0(batch_lang).view(4*self.hidden_size)
+
+        w_ih_reverse = self.hyper_w_ih_l0_reverse(batch_lang).view(4*self.hidden_size, -1)
+        w_hh_reverse = self.hyper_w_hh_l0_reverse(batch_lang).view(4*self.hidden_size, -1)
+        b_ih_reverse = self.hyper_b_ih_l0_reverse(batch_lang).view(4*self.hidden_size)
+        b_hh_reverse = self.hyper_b_hh_l0_reverse(batch_lang).view(4*self.hidden_size)
+
+
+        max_seq_len = input.size()[1]
+
+        output_forward = []
+        output_reverse = []
+
+        hy_forward, cy_forward = self.h_init, self.c_init
+        hy_reverse, cy_reverse = self.h_init_reverse, self.c_init_reverse
+        output_cell_forward = []
+        for i in range(max_seq_len):
+            hy_forward, cy_forward = lstm_cell(input[:,i,:], (hy_forward, cy_forward), w_ih, w_hh, b_ih, b_hh)
+
+            hy_reverse, cy_reverse = lstm_cell(input[:,max_seq_len-i-1,:], (hy_reverse, cy_reverse), w_ih_reverse, w_hh_reverse, b_ih_reverse, b_hh_reverse)
+            output_forward.append(hy_forward)
+            output_reverse.append(hy_reverse)
+            output_cell_forward.append(cy_forward)
+
+        output_forward_hyper = torch.stack(output_forward, dim=1)
+        output_reverse_hyper = torch.stack(output_reverse, dim=1)
+
+        output_cell_forward = torch.stack(output_cell_forward, dim=1)
+
+
+        final_forward = []
+        final_reverse = []
+        final_cell_forward = []
+        for i in range(batch_size):
+            final_forward.append(output_forward_hyper[i, lengths[i]-1,:])
+            final_cell_forward.append(output_cell_forward[i, lengths[i]-1,:])
+
+        #     final_reverse.append(output_reverse_hyper[i, lengths[i]-1,:])
+
+        final_forward = torch.stack(final_forward, dim=0)
+        final_cell_forward = torch.stack(final_cell_forward, dim=0)
+        # final_reverse = torch.stack(final_reverse, dim=0)
+
+
+        final_output = torch.cat((output_forward_hyper, output_reverse_hyper), dim=2)
+
+        return final_output.permute(1,0,2), (final_forward.unsqueeze(dim=0), final_cell_forward.unsqueeze(dim=0))
+
+
+    def forward(self,
+                x,
+                hidden=None,
+                src_encodings=None,
+                src_lengths=None,
+                tgt=None):
+        """
+        Args:
+            x: decoder input (length, batch_size)
+            decoder_hidden : decoder hidden state
+            src_encodings : encoder states (src_length, batch_size, hidden_size)
+            src_lengths: corresponding lengths of source encoder
+            tgt : target output tensor (length, batch_size)
+        """
+        if tgt is None:
+            tgt_length = 1
+        else:
+            tgt_length, _ = tgt.shape
+
+        # Feed ground truth for now
+        embed_x = self.embed(x)
+        # rnn_output: (tgt_length, batch_size, hidden_size)
+        hidden = [h.contiguous() for h in hidden]
+        print(len(hidden))
+        print(hidden[0].size())
+        fooof
+        # HYPER = False
+        HYPER = True
+        if HYPER:
+            output, hidden = self.hyper_rnn_forward(embed_x, lengths, batch_lang)
+        else:
+            rnn_output, hidden = self.rnn.forward(embed_x, hidden)
+
+        # attn_weights: (src_length, tgt_length, batch_size, hidden_size)
+        # src_encodings: (src_length, batch_size, hidden_size)
+        context = self.attn.forward(rnn_output, src_encodings, src_lengths)
+        concat = torch.cat([context, rnn_output], dim=-1)
+
+        # attentional layer
+        attn_hidden_state = torch.tanh(
+            self.c2h(F.dropout(concat, self.dropout_rate)))
+
+        # output logits
+        output = self.h2o(F.dropout(attn_hidden_state, self.dropout_rate))
+
+        return output, hidden
 
 class LuongDecoder(nn.Module):
     """

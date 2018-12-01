@@ -1,7 +1,7 @@
 #!/bin/sh
 
 l1=$1
-ltarget="en"
+# ltarget="en"
 
 vocab="data/vocab.$l1-en.bin"
 train_src="data/train.en-$l1.$l1.txt"
