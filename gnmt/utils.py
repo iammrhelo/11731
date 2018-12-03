@@ -49,7 +49,7 @@ def batch_iter(data, batch_size, shuffle=False):
         examples = [data[idx] for idx in indices]
 
         # Sort decreasing by source sentence length
-        examples = sorted(examples, key=lambda e: len(e[0]), reverse=True)
+        examples = sorted(examples, key=lambda e: len(e[0][2]), reverse=True)
         src_sents, tgt_sents = list(zip(*examples))
         yield src_sents, tgt_sents
 

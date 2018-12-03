@@ -328,7 +328,13 @@ class NMT(nn.Module):
         # by the NN library to signal the backend to not to keep gradient information
         # e.g., `torch.no_grad()`
         with torch.no_grad():
-            for src_sents, tgt_sents in batch_iter(dev_data, batch_size):
+            for src_data, tgt_data in batch_iter(dev_data, batch_size):
+                src_keywords, src_codes, src_sents = list(zip(*src_data))
+                tgt_keywords, tgt_codes, tgt_sents = list(zip(*tgt_data))
+
+                examples = zip(tgt_codes, src_sents)
+                src_sents = [example[0] + " " + example[1] for example in examples]
+
                 loss = self.__call__(src_sents, tgt_sents).sum()
                 cum_loss += loss
                 # omitting the leading `<s>`
@@ -463,13 +469,12 @@ def train(args: Dict[str, str]):
             Example 3: Implement batch_iwslt_iter in util.py
 
             """
-            src_sents = [kw + sent for kw, code, sent in src_data]
-            tgt_sents = [kw + [code] + sent for kw, code, sent in tgt_data]
 
-            # Lengths has to sort in decreasing order...
+            src_keywords, src_codes, src_sents = list(zip(*src_data))
+            tgt_keywords, tgt_codes, tgt_sents = list(zip(*tgt_data))
 
-            import pdb
-            pdb.set_trace()
+            examples = zip(tgt_codes, src_sents)
+            src_sents = [example[0] + " " + example[1] for example in examples]
 
             model.train()
             train_iter += 1

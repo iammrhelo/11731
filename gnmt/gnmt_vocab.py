@@ -15,6 +15,8 @@ Options:
     --freq-cutoff=<int>        frequency cutoff [default: 5]
 """
 
+#python -u gnmt_vocab.py --train-src='../iwslt2017/data/train.all.src' --train-tgt='../iwslt2017/data/train.all.tgt' --size=30000 ../iwslt2017/data/vocab.all.bin
+
 from typing import List
 from collections import Counter
 from itertools import chain
@@ -86,6 +88,7 @@ class VocabEntry(object):
         print(
             f'number of word types: {len(word_freq)}, number of word types w/ frequency >= {freq_cutoff}: {len(valid_words)}'
         )
+
         if size:
             top_k_words = sorted(
                 valid_words, key=lambda w: word_freq[w], reverse=True)[:size]
