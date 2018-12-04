@@ -1,10 +1,10 @@
 #!/bin/sh
 
-vocab="data/vocab.all.bin"
-train_src="data/train.all.src"
-train_tgt="data/train.all.tgt"
-dev_src="data/valid.all.src"
-dev_tgt="data/valid.all.tgt"
+vocab="../iwslt2017/data/vocab.all.bin"
+train_src="../iwslt2017/data/train.all.src"
+train_tgt="../iwslt2017/data/train.all.tgt"
+dev_src="../iwslt2017/data/valid.all.src"
+dev_tgt="../iwslt2017/data/valid.all.tgt"
 
 work_dir="work_dir-all"
 
@@ -27,6 +27,7 @@ python -u gnmt_skeleton.py \
     --save-to ${work_dir} \
     --num-layers 2 \
     --max-epoch 30 \
+    --log-every 1000 \
     --valid-niter ${valid_niter} \
     --batch-size ${batch_size} \
     --hidden-size 256 \

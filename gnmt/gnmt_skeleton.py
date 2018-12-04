@@ -333,7 +333,7 @@ class NMT(nn.Module):
                 tgt_keywords, tgt_codes, tgt_sents = list(zip(*tgt_data))
 
                 examples = zip(tgt_codes, src_sents)
-                src_sents = [example[0] + " " + example[1] for example in examples]
+                src_sents = [[example[0]] + example[1] for example in examples]
 
                 loss = self.__call__(src_sents, tgt_sents).sum()
                 cum_loss += loss
@@ -474,7 +474,7 @@ def train(args: Dict[str, str]):
             tgt_keywords, tgt_codes, tgt_sents = list(zip(*tgt_data))
 
             examples = zip(tgt_codes, src_sents)
-            src_sents = [example[0] + " " + example[1] for example in examples]
+            src_sents = [[example[0]] + example[1] for example in examples]
 
             model.train()
             train_iter += 1

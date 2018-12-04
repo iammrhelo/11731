@@ -39,6 +39,7 @@ def batch_iter(data, batch_size, shuffle=False):
     Given a list of examples, shuffle and slice them into mini-batches
     """
     batch_num = math.ceil(len(data) / batch_size)
+    print(batch_num)
     index_array = list(range(len(data)))
 
     if shuffle:
