@@ -6,9 +6,11 @@ lang_pairs=('nl-en' 'en-de' 'de-nl');
 in_dir='../iwslt2017/normal'
 out_dir='../iwslt2017/data'
 
-for split in train valid test;
+for split in train valid;
 do
     echo $split
+    rm $out_dir/$split.all.src
+    rm $out_dir/$split.all.tgt
 
     for ((idx=0; idx<${#lang_pairs[@]}; ++idx)); 
     do
