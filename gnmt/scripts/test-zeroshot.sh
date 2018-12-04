@@ -10,7 +10,7 @@ dev_src=${out_dir}/valid.${name}.src
 dev_tgt=${out_dir}/valid.${name}.tgt
 
 work_dir=work_dir-${name}
-beam_size=3
+beam_size=5
 echo decoding $dev_src ...
 python gnmt_skeleton.py \
     decode \
@@ -18,10 +18,10 @@ python gnmt_skeleton.py \
     --max-decoding-time-step 100 \
     ${work_dir}/model.bin \
     ${dev_src} \
+    ${dev_tgt} \
     ${work_dir}/decode.dev.beam$beam_size.txt
 
-perl multi-bleu.perl ${dev_tgt} < ${work_dir}/decode.dev.beam$beam_size.txt
-
+#perl multi-bleu.perl ${dev_tgt} < ${work_dir}/decode.dev.beam$beam_size.txt
 
 IFS="-" read -ra langs <<< "${test_name}";
 echo ${langs[0]} ${langs[1]}
@@ -36,6 +36,7 @@ python gnmt_skeleton.py \
     --max-decoding-time-step 100 \
     ${work_dir}/model.bin \
     ${test_src} \
-    ${work_dir}/decode.test.beam$beam_size.txt
+    ${test_tgt} \
+    ${work_dir}/decode.${name}.test.beam$beam_size.txt
 
-perl multi-bleu.perl ${test_tgt} < ${work_dir}/decode.${name}.test.beam$beam_size.txt
+#perl multi-bleu.perl ${test_tgt} < ${work_dir}/decode.${name}.test.beam$beam_size.txt

@@ -381,10 +381,12 @@ def compute_corpus_level_bleu_score(references: List[List[str]], hypotheses: Lis
     Returns:
         bleu_score: corpus-level BLEU score
     """
-    if references[0][0] == '<s>':
-        references = [ref[1:-1] for ref in references]
+    ref_keywords, ref_codes, ref_sents = references
 
-    bleu_score = corpus_bleu([[ref] for ref in references],
+    if ref_sents[0][0] == '<s>':
+        ref_sents = [ref[1:-1] for ref in ref_sents]
+
+    bleu_score = corpus_bleu([[ref] for ref in ref_sents],
                              [hyp.value for hyp in hypotheses])
 
     return bleu_score
@@ -600,7 +602,8 @@ def beam_search(model: NMT, test_data_src: List[List[str]], beam_size: int, max_
 
     hypotheses = []
     try:
-        for src_sent in tqdm(test_data_src, desc='Decoding', file=sys.stdout):
+        for src_data in tqdm(test_data_src, desc='Decoding', file=sys.stdout):
+            src_keyword, src_code, src_sent = src_data
             example_hyps = model.beam_search(
                 src_sent, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step)
             hypotheses.append(example_hyps)
