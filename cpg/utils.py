@@ -61,13 +61,13 @@ def read_iwslt_corpus(file_path, source):
     Format example:
     <keywords>kw1, kw2, kw3</keywords>\ten\tHello World .\n
     Returns:
-        datas: list of tuples 
+        datas: list of tuples
         tuple: (keywords, code, sent)
 
     Tuple Format:
         keywords: [ '<kw1>', '<kw2>', ... ]
         code: '<2es>'
-        sent: [ 'word1', 'word2', ...] 
+        sent: [ 'word1', 'word2', ...]
     """
     datas = []
     with open(file_path, 'r') as fin:
@@ -127,7 +127,7 @@ def create_batches_from_pairs(pairs, batch_size):
 
 def batch_cpg_iter(datas, batch_size, shuffle=False):
     """
-    Chain everything into memory 
+    Chain everything into memory
     datas: [ (src1, tgt1), (src2, tgt2)]
     """
     batches = []

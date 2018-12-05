@@ -20,6 +20,7 @@ Options:
     --seed=<int>                            seed [default: 0]
     --batch-size=<int>                      batch size [default: 32]
     --embed-size=<int>                      embedding size [default: 256]
+    --lang-embed-size=<int>                 the language embedding size
     --hidden-size=<int>                     hidden size [default: 256]
     --num-layers=<int>                      number of layers for encoder and decoder [default: 1]
     --bidirectional                         use bidirectional for encoder
@@ -71,6 +72,7 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from tqdm import tqdm
 
 from models import Encoder, GlobalAttention, LuongDecoder
+from models import HyperEncoder, HyperLuongDecoder
 from utils import batch_cpg_iter, input_transpose, read_iwslt_corpus
 from cpg_vocab import Vocab, VocabEntry, read_list
 
@@ -92,7 +94,10 @@ class NMT(nn.Module):
         self.mask_attn = opt["mask_attn"]
         self.dropout_rate = opt["dropout_rate"]
         self.vocab = opt["vocab"]
+        # self.vocab_src = self.vocab.src
+        # self.vocab_tgt = self.vocab.tgt
         self.use_cuda = opt["use_cuda"]
+        self.lang_embed_size = opt["lang_embed_size"]
 
         # Build Encoder, Decoder, and Attention
         # TODO: Create your own list of embeddings for both Encoder and Decoder
@@ -100,7 +105,8 @@ class NMT(nn.Module):
         #    print(lang, len(vocabentry))
         encoder_opt = deepcopy(opt)
         encoder_opt["num_embeddings"] = len(self.vocab.src)
-        self.encoder = Encoder(encoder_opt)
+        # self.encoder = Encoder(encoder_opt)
+        self.encoder = HyperEncoder(encoder_opt)
 
         encoder_hidden_size = (int(self.bidirectional)+1) * self.hidden_size
         decoder_hidden_size = self.hidden_size
@@ -110,7 +116,8 @@ class NMT(nn.Module):
 
         decoder_opt = deepcopy(opt)
         decoder_opt["num_embeddings"] = len(self.vocab.tgt)
-        self.decoder = LuongDecoder(decoder_opt, attn)
+        # self.decoder = LuongDecoder(decoder_opt, attn)
+        self.decoder = HyperLuongDecoder(decoder_opt, attn)
 
         # Evaluation
         # pad_index is 0 for everything
@@ -127,7 +134,7 @@ class NMT(nn.Module):
         for param in self.parameters():
             init.uniform_(param, -uniform_weight, uniform_weight)
 
-    def __call__(self, src_sents: List[List[str]], tgt_sents: List[List[str]]) -> Tensor:
+    def __call__(self, src_sents: List[List[str]], src_codes, tgt_sents: List[List[str]], tgt_codes) -> Tensor:
         """
         take a mini-batch of source and target sentences, compute the log-likelihood of
         target sentences.
@@ -142,9 +149,9 @@ class NMT(nn.Module):
                 each example in the input batch
         """
         # Train mode
-        src_encodings, src_lengths, decoder_init_state = self.encode(src_sents)
+        src_encodings, src_lengths, decoder_init_state = self.encode(src_sents, src_codes)
         scores = self.decode(
-            src_encodings, src_lengths, decoder_init_state, tgt_sents)
+            src_encodings, src_lengths, decoder_init_state, tgt_codes, tgt_sents)
         return scores
 
     def sents2tensor(self, sents: List[List[str]], vocab: typing.Any) -> Tensor:
@@ -162,7 +169,7 @@ class NMT(nn.Module):
             sents_tensor = sents_tensor.cuda()
         return sents_tensor
 
-    def encode(self, src_sents: List[List[str]]) -> Tuple[Tensor, typing.Any]:
+    def encode(self, src_sents: List[List[str]], src_codes) -> Tuple[Tensor, typing.Any]:
         """
         Use a GRU/LSTM to encode source sentences into hidden states
 
@@ -175,14 +182,15 @@ class NMT(nn.Module):
             decoder_init_state: decoder GRU/LSTM's initial state, computed from source encodings
         """
         # Convert words to tensor
-        src_tensor = self.sents2tensor(src_sents, self.vocab.src)
-        src_lengths = (src_tensor != self.vocab.src.pad_id).sum(dim=0)
-
+        assert len(set(src_codes)) == 1
+        src_tensor = self.sents2tensor(src_sents, self.vocab.src[src_codes[0]])
+        src_lengths = (src_tensor != self.vocab.src[src_codes[0]].pad_id).sum(dim=0)
         # (length, batch_size, dim)
-        encoder_output, encoder_hidden = self.encoder(src_tensor, src_lengths)
+        encoder_output, encoder_hidden = self.encoder(src_tensor, src_lengths, src_codes)
+
         return encoder_output, src_lengths, encoder_hidden
 
-    def decode(self, src_encodings: Tensor, src_lengths: Tensor, decoder_init_state: typing.Any, tgt_sents: List[List[str]] = None) -> Tensor:
+    def decode(self, src_encodings: Tensor, src_lengths: Tensor, decoder_init_state: typing.Any, tgt_codes, tgt_sents: List[List[str]] = None) -> Tensor:
         """
         Given source encodings, compute the log-likelihood of predicting the gold-standard target
         sentence tokens
@@ -199,7 +207,8 @@ class NMT(nn.Module):
         """
         # tgt_sents 2 tensor
         # (length, batch_size)
-        tgt_tensor = self.sents2tensor(tgt_sents, self.vocab.tgt)
+
+        tgt_tensor = self.sents2tensor(tgt_sents, self.vocab.tgt[tgt_codes[0]])
         # Here we feed in the target output for log-likelihood prediction
         # (length, batch_size, classes)
         decoder_hidden = decoder_init_state
@@ -207,7 +216,7 @@ class NMT(nn.Module):
         decoder_true = tgt_tensor[1:]
 
         decoder_pred, _ = self.decoder.forward(
-            decoder_input, decoder_hidden, src_encodings, src_lengths, decoder_true)
+            decoder_input, decoder_hidden, src_encodings, src_lengths, tgt_codes, decoder_true)
 
         # Permute for loss calculation
         # (batch_size, classes, length)
@@ -221,7 +230,7 @@ class NMT(nn.Module):
         scores = loss.sum(dim=1)  # sum over length
         return scores
 
-    def beam_search(self, src_sent: List[str], beam_size: int = 5, max_decoding_time_step: int = 70) -> List[Hypothesis]:
+    def beam_search(self, src_sent: List[str], src_code, tgt_code, beam_size: int = 5, max_decoding_time_step: int = 70) -> List[Hypothesis]:
         """
         Given a single source sentence, perform beam search
 
@@ -235,17 +244,18 @@ class NMT(nn.Module):
                 value: List[str]: the decoded target sentence, represented as a list of words
                 score: float: the log-likelihood of the target sentence
         """
-        start_id = self.vocab.tgt["<s>"]
-        stop_id = self.vocab.tgt["</s>"]
+
+        start_id = self.vocab.tgt[tgt_code]["<s>"]
+        stop_id = self.vocab.tgt[tgt_code]["</s>"]
 
         with torch.no_grad():
             # (length, 1)
-            src_tensor = self.sents2tensor([src_sent], self.vocab.src)
-            src_lengths = (src_tensor != self.vocab.src.pad_id).sum(dim=0)
+            src_tensor = self.sents2tensor([src_sent], self.vocab.src[src_code])
+            src_lengths = (src_tensor != self.vocab.src[src_code].pad_id).sum(dim=0)
 
             # Get information from encoder
             encoder_output, decoder_init_state = self.encoder.forward(
-                src_tensor, src_lengths)
+                src_tensor, src_lengths, [src_code])
 
             # Do debugging here
             # src_sent: [ a, b, c, d ]
@@ -272,7 +282,7 @@ class NMT(nn.Module):
                         decoder_input = decoder_input.cuda()
 
                     decoder_output, decoder_hidden = self.decoder.forward(
-                        decoder_input, prev_decoder_hidden, encoder_output)
+                        decoder_input, prev_decoder_hidden, encoder_output, src_lengths=None, batch_lang=[tgt_code])
 
                     # Since we have only 1 element, squeeze to 1 dim
                     decoder_output = decoder_output.squeeze()
@@ -307,11 +317,41 @@ class NMT(nn.Module):
         # Convert beam_states into hypothesis
         hypotheses = []
         for word_indices, log_score, _ in beam_states:
-            sent = self.vocab.tgt.indices2words(
+            sent = self.vocab.tgt[tgt_code].indices2words(
                 word_indices[1:-1])
             hyp = Hypothesis(value=sent, score=log_score)
             hypotheses.append(hyp)
         return hypotheses
+
+    def hyper_evaluate_ppl(self, dev_datas: List[typing.Any], batch_size: int = 16):
+        """
+        Evaluate perplexity on dev sentences
+
+        Args:
+            dev_data: a list of dev sentences
+            batch_size: batch size
+
+        Returns:
+            ppl: the perplexity on dev sentences
+        """
+        # Evaluation mode
+        cum_loss = 0.
+        cum_tgt_words = 0.
+
+        # you may want to wrap the following code using a context manager provided
+        # by the NN library to signal the backend to not to keep gradient information
+        # e.g., `torch.no_grad()`
+        with torch.no_grad():
+            for (src_keywords, src_codes, src_sents), (tgt_keywords, tgt_codes, tgt_sents) in batch_cpg_iter(dev_datas, batch_size=batch_size, shuffle=False):
+                loss = self.__call__(src_sents, src_codes, tgt_sents, tgt_codes).sum()
+                cum_loss += loss
+                # omitting the leading `<s>`
+                tgt_word_num_to_predict = sum(len(s[1:]) for s in tgt_sents)
+                cum_tgt_words += tgt_word_num_to_predict
+
+            ppl = np.exp(cum_loss / cum_tgt_words)
+
+        return ppl
 
     def evaluate_ppl(self, dev_data: List[typing.Any], batch_size: int = 16):
         """
@@ -357,8 +397,8 @@ class NMT(nn.Module):
             model = torch.load(
                 model_path, map_location=lambda storage, loc: storage)
             model.use_cuda = False
-        model.encoder.rnn.flatten_parameters()
-        model.decoder.rnn.flatten_parameters()
+        # model.encoder.rnn.flatten_parameters()
+        # model.decoder.rnn.flatten_parameters()
         return model
 
     def save(self, path: str):
@@ -432,6 +472,7 @@ def train(args: Dict[str, str]):
 
     model_opt = {
         "embed_size": int(args['--embed-size']),
+        "lang_embed_size": int(args['--lang-embed-size']),
         "hidden_size": int(args['--hidden-size']),
         "num_layers": int(args['--num-layers']),
         "dropout_rate": float(args['--dropout']),
@@ -469,23 +510,28 @@ def train(args: Dict[str, str]):
         epoch += 1
 
         for (src_keywords, src_codes, src_sents), (tgt_keywords, tgt_codes, tgt_sents) in batch_cpg_iter(train_datas, batch_size=train_batch_size, shuffle=True):
+            # print(src_codes, tgt_codes)
             """
             TODO: Pass the data into CPG-NMT
 
-            Example 2: Add <2XX> in target data 
+            Example 2: Add <2XX> in target data
             src_sents = [ kw + sent for kw, code, sent in src_data ]
-            tgt_sents = [ kw + [ code ] + sent for kw, code, sent in tgt_data ] 
+            tgt_sents = [ kw + [ code ] + sent for kw, code, sent in tgt_data ]
             """
-            import pdb
-            pdb.set_trace()
+            # print(src_keywords, src_codes, src_sents)
+            # print(tgt_keywords, tgt_codes, tgt_sents)
+
+            # import pdb
+            # pdb.set_trace()
 
             model.train()
             train_iter += 1
 
+
             batch_size = len(src_sents)
             optimizer.zero_grad()
             # (batch_size)
-            scores = model(src_sents, tgt_sents)
+            scores = model(src_sents, src_codes, tgt_sents, tgt_codes)
             loss = scores.sum()
 
             # Optimizer here
@@ -543,7 +589,7 @@ def train(args: Dict[str, str]):
                 model.eval()
                 # compute dev. ppl and bleu
                 # dev batch size can be a bit larger
-                dev_ppl = model.evaluate_ppl(dev_data, batch_size=32)
+                dev_ppl = model.hyper_evaluate_ppl(dev_datas, batch_size=32)
                 valid_metric = -dev_ppl
 
                 print('validation: iter %d, dev. ppl %f' %
@@ -597,14 +643,14 @@ def train(args: Dict[str, str]):
                 gc.collect()
 
 
-def beam_search(model: NMT, test_data_src: List[List[str]], beam_size: int, max_decoding_time_step: int) -> List[List[Hypothesis]]:
+def beam_search(src_code, tgt_code, model: NMT, test_data_src: List[List[str]], beam_size: int, max_decoding_time_step: int) -> List[List[Hypothesis]]:
     was_training = model.training
 
     hypotheses = []
     try:
-        for src_sent in tqdm(test_data_src, desc='Decoding', file=sys.stdout):
+        for kew_words, src_code, src_sent in tqdm(test_data_src, desc='Decoding', file=sys.stdout):
             example_hyps = model.beam_search(
-                src_sent, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step)
+                src_sent, src_code, tgt_code, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step)
             hypotheses.append(example_hyps)
     except KeyboardInterrupt:
         print("Keyboard interrupted!")
@@ -623,11 +669,15 @@ def decode(args: Dict[str, str]):
         test_data_tgt = read_iwslt_corpus(
             args['TEST_TARGET_FILE'], source='tgt')
 
+    src_code = '<2' + args['TEST_SOURCE_FILE'][-2:] + '>'
+    print("src_code", src_code)
+    tgt_code = '<2en>'
+
     print(f"load model from {args['MODEL_PATH']}", file=sys.stderr)
     use_cuda = bool(args['--cuda'])
     model = NMT.load(args['MODEL_PATH'], use_cuda)
     model.eval()
-    hypotheses = beam_search(model, test_data_src,
+    hypotheses = beam_search(src_code, tgt_code, model, test_data_src,
                              beam_size=int(args['--beam-size']),
                              max_decoding_time_step=int(args['--max-decoding-time-step']))
 

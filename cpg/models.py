@@ -3,11 +3,341 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
+def lstm_cell(input, hidden, w_ih, w_hh, b_ih, b_hh):
+    # type: (Tensor, Tuple[Tensor, Tensor], Tensor, Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor]
+    hx, cx = hidden
+
+    gates = torch.mm(input, w_ih.t()) + torch.mm(hx, w_hh.t()) + b_ih + b_hh
+
+    ingate, forgetgate, cellgate, outgate = gates.chunk(4, 1)
+
+    ingate = torch.sigmoid(ingate)
+    forgetgate = torch.sigmoid(forgetgate)
+    cellgate = torch.tanh(cellgate)
+    outgate = torch.sigmoid(outgate)
+
+    cy = (forgetgate * cx) + (ingate * cellgate)
+    hy = outgate * torch.tanh(cy)
+
+    return hy, cy
+
+class HyperEncoder(nn.Module):
+    """
+    A basic encoder implementation with options
+    """
+
+    def __init__(self, opt):
+        super(HyperEncoder, self).__init__()
+        self.num_langs = opt["num_embeddings"]
+        self.embed_size = opt["embed_size"]
+        self.hidden_size = opt["hidden_size"]
+        self.num_layers = opt["num_layers"]
+        self.dropout_rate = opt["dropout_rate"]
+        self.bidirectional = opt["bidirectional"]
+        self.lang_embed_size = opt["lang_embed_size"]
+        self.vocab = opt["vocab"]
+        self.vocab_src = self.vocab.src
+        self.use_cuda = opt["use_cuda"]
+
+        # Build n
+
+        self.lang_embed = nn.Embedding(self.num_langs, self.lang_embed_size)
+        self.src_lang_map = {}
+        self.vocab_embed = {}
+        for lang, vocabentry in self.vocab_src.items():
+           num_words = len(vocabentry)
+           print(lang, num_words)
+           self.src_lang_map[lang] = len(self.src_lang_map)
+           self.vocab_embed[lang] = nn.Embedding(num_words, self.embed_size).cuda()
+
+        # self.embed = nn.Embedding(self.num_embeddings, self.embed_size)
+
+        self.c_init = torch.nn.Parameter(torch.zeros(1, self.hidden_size))
+        self.h_init = torch.nn.Parameter(torch.zeros(1, self.hidden_size))
+
+        if self.bidirectional:
+            self.c_init_reverse = torch.nn.Parameter(torch.zeros(1, self.hidden_size))
+            self.h_init_reverse = torch.nn.Parameter(torch.zeros(1, self.hidden_size))
+
+        self.hyper_w_ih_l0 = nn.Linear(self.lang_embed_size, 4*self.hidden_size*self.embed_size)
+        self.hyper_w_hh_l0 = nn.Linear(self.lang_embed_size, 4*self.hidden_size*self.hidden_size)
+        self.hyper_b_ih_l0 = nn.Linear(self.lang_embed_size, 4*self.hidden_size)
+        self.hyper_b_hh_l0 = nn.Linear(self.lang_embed_size, 4*self.hidden_size)
+        if self.bidirectional:
+            self.hyper_w_ih_l0_reverse = nn.Linear(self.lang_embed_size, 4*self.hidden_size*self.embed_size)
+            self.hyper_w_hh_l0_reverse = nn.Linear(self.lang_embed_size, 4*self.hidden_size*self.hidden_size)
+            self.hyper_b_ih_l0_reverse = nn.Linear(self.lang_embed_size, 4*self.hidden_size)
+            self.hyper_b_hh_l0_reverse = nn.Linear(self.lang_embed_size, 4*self.hidden_size)
+
+
+        # self.rnn = nn.LSTM(
+        #     self.embed_size,
+        #     self.hidden_size,
+        #     self.num_layers,
+        #     dropout=self.dropout_rate,
+        #     bidirectional=self.bidirectional)
+
+
+
+    def hyper_rnn_forward(self, input, lengths, batch_lang):
+        input = input.permute(1,0,2)
+        batch_size = input.size()[0]
+        # print("batch_lang", batch_lang, batch_lang.size())
+        batch_lang = batch_lang[0]
+        w_ih = self.hyper_w_ih_l0(batch_lang).view(4*self.hidden_size, -1)
+        w_hh = self.hyper_w_hh_l0(batch_lang).view(4*self.hidden_size, -1)
+        b_ih = self.hyper_b_ih_l0(batch_lang).view(4*self.hidden_size)
+        b_hh = self.hyper_b_hh_l0(batch_lang).view(4*self.hidden_size)
+
+        w_ih_reverse = self.hyper_w_ih_l0_reverse(batch_lang).view(4*self.hidden_size, -1)
+        w_hh_reverse = self.hyper_w_hh_l0_reverse(batch_lang).view(4*self.hidden_size, -1)
+        b_ih_reverse = self.hyper_b_ih_l0_reverse(batch_lang).view(4*self.hidden_size)
+        b_hh_reverse = self.hyper_b_hh_l0_reverse(batch_lang).view(4*self.hidden_size)
+
+
+        max_seq_len = input.size()[1]
+
+        output_forward = []
+        output_reverse = []
+
+        hy_forward, cy_forward = self.h_init, self.c_init
+        hy_reverse, cy_reverse = self.h_init_reverse, self.c_init_reverse
+        output_cell_forward = []
+        for i in range(max_seq_len):
+            hy_forward, cy_forward = lstm_cell(input[:,i,:], (hy_forward, cy_forward), w_ih, w_hh, b_ih, b_hh)
+
+            hy_reverse, cy_reverse = lstm_cell(input[:,max_seq_len-i-1,:], (hy_reverse, cy_reverse), w_ih_reverse, w_hh_reverse, b_ih_reverse, b_hh_reverse)
+            output_forward.append(hy_forward)
+            output_reverse.append(hy_reverse)
+            output_cell_forward.append(cy_forward)
+
+        output_forward_hyper = torch.stack(output_forward, dim=1)
+        output_reverse_hyper = torch.stack(output_reverse, dim=1)
+
+        output_cell_forward = torch.stack(output_cell_forward, dim=1)
+
+
+        final_forward = []
+        final_reverse = []
+        final_cell_forward = []
+        for i in range(batch_size):
+            final_forward.append(output_forward_hyper[i, lengths[i]-1,:])
+            final_cell_forward.append(output_cell_forward[i, lengths[i]-1,:])
+
+        #     final_reverse.append(output_reverse_hyper[i, lengths[i]-1,:])
+
+        final_forward = torch.stack(final_forward, dim=0)
+        final_cell_forward = torch.stack(final_cell_forward, dim=0)
+        # final_reverse = torch.stack(final_reverse, dim=0)
+
+
+        final_output = torch.cat((output_forward_hyper, output_reverse_hyper), dim=2)
+
+        return final_output.permute(1,0,2), (final_forward.unsqueeze(dim=0), final_cell_forward.unsqueeze(dim=0))
+
+    def forward(self, x, lengths, batch_lang, hidden=None):
+        embed_x = self.vocab_embed[batch_lang[0]](x)
+
+        batch_lang = torch.LongTensor([self.src_lang_map[lang] for lang in batch_lang])
+        if self.use_cuda:
+            batch_lang = batch_lang.cuda()
+
+        embed_lang = self.lang_embed(batch_lang)
+        # embed_x = self.embed(x)
+        # hidden should corresponding to the hidden state at lengths
+
+        # HYPER = False
+        HYPER = True
+
+        if HYPER:
+            output, hidden = self.hyper_rnn_forward(embed_x, lengths, embed_lang)
+
+        else:
+            packed_embed_x = pack_padded_sequence(embed_x, lengths)
+            packed_output, hidden = self.rnn(packed_embed_x, hidden)
+            output, _ = pad_packed_sequence(packed_output)
+
+            if self.bidirectional:
+                # We only give the forward hidden states here
+                def get_forward_op(h):
+                    _, batch_size, hidden_size = h.shape
+                    sep_h = h.view(self.num_layers, 2, batch_size, hidden_size)
+                    return sep_h[:, 0, :, :]
+
+                hidden = tuple(map(get_forward_op, hidden))
+
+        # print(output.size(), "hidden", hidden[0].size(), hidden[1].size())#torch.Size([69, 64, 1024]) hidden torch.Size([1, 64, 512]) torch.Size([1, 64, 512])
+
+        return output, hidden
+
+class HyperLuongDecoder(nn.Module):
+    """
+    An attention based decoder that also takes in encoder_outputs
+    """
+
+    def __init__(self, opt, attn):
+        super(HyperLuongDecoder, self).__init__()
+        self.num_langs = opt["num_embeddings"]
+        self.embed_size = opt["embed_size"]
+        self.hidden_size = opt["hidden_size"]
+        self.num_layers = opt["num_layers"]
+        self.dropout_rate = opt["dropout_rate"]
+
+        self.lang_embed_size = opt["lang_embed_size"]
+        self.vocab = opt["vocab"]
+        self.vocab_tgt = self.vocab.tgt
+        self.use_cuda = opt["use_cuda"]
+
+        self.lang_embed = nn.Embedding(self.num_langs, self.lang_embed_size)
+        self.tgt_lang_map = {}
+        self.vocab_embed = {}
+        self.h2o_map = {}
+
+        for lang, vocabentry in self.vocab_tgt.items():
+           num_words = len(vocabentry)
+           print(lang, num_words)
+           self.tgt_lang_map[lang] = len(self.tgt_lang_map)
+           self.vocab_embed[lang] = nn.Embedding(num_words, self.embed_size).cuda()
+           self.h2o_map[lang] = nn.Linear(self.hidden_size, num_words).cuda()
+
+        # Build layers
+        # self.embed = nn.Embedding(self.num_embeddings, self.embed_size)
+
+        self.c_init = torch.nn.Parameter(torch.zeros(1, self.hidden_size))
+        self.h_init = torch.nn.Parameter(torch.zeros(1, self.hidden_size))
+
+        self.hyper_w_ih_l0 = nn.Linear(self.lang_embed_size, 4*self.hidden_size*self.embed_size)
+        self.hyper_w_hh_l0 = nn.Linear(self.lang_embed_size, 4*self.hidden_size*self.hidden_size)
+        self.hyper_b_ih_l0 = nn.Linear(self.lang_embed_size, 4*self.hidden_size)
+        self.hyper_b_hh_l0 = nn.Linear(self.lang_embed_size, 4*self.hidden_size)
+
+        self.rnn = nn.LSTM(
+            self.embed_size,
+            self.hidden_size,
+            self.num_layers,
+            dropout=self.dropout_rate)
+
+        # Global Attention: Concat scoring function
+        self.attn = attn
+
+        # Final output prediction
+        if self.attn.attn_type == "Concat":
+            concat_size = self.attn.input_size
+        else:
+            concat_size = self.attn.input_size + self.attn.output_size
+
+        # attentional layer
+        self.c2h = nn.Linear(concat_size, self.hidden_size)
+        # output layer
+        # fooshouldtherebeadiffrentlinear?
+        # self.h2o = nn.Linear(self.hidden_size, self.num_embeddings)
+
+    def hyper_rnn_forward(self, input, batch_lang, init_hidden):
+        input = input.permute(1,0,2)
+        batch_size = input.size()[0]
+        batch_lang = batch_lang[0]
+        # print("batch_lang", batch_lang, batch_lang.size())
+        w_ih = self.hyper_w_ih_l0(batch_lang).view(4*self.hidden_size, -1)
+        w_hh = self.hyper_w_hh_l0(batch_lang).view(4*self.hidden_size, -1)
+        b_ih = self.hyper_b_ih_l0(batch_lang).view(4*self.hidden_size)
+        b_hh = self.hyper_b_hh_l0(batch_lang).view(4*self.hidden_size)
+
+        max_seq_len = input.size()[1]
+
+        output_forward = []
+
+        # hy_forward, cy_forward = self.h_init, self.c_init
+        hy_forward, cy_forward = init_hidden
+        hy_forward = hy_forward.squeeze(dim=0)
+        cy_forward = cy_forward.squeeze(dim=0)
+        output_cell_forward = []
+        for i in range(max_seq_len):
+            hy_forward, cy_forward = lstm_cell(input[:,i,:], (hy_forward, cy_forward), w_ih, w_hh, b_ih, b_hh)
+
+            output_forward.append(hy_forward)
+            output_cell_forward.append(cy_forward)
+
+        output_forward_hyper = torch.stack(output_forward, dim=1)
+
+        output_cell_forward = torch.stack(output_cell_forward, dim=1)
+
+        # print("output_forward_hyper", output_forward_hyper.size())
+        # print("output_cell_forward", output_cell_forward.size())
+
+        final_forward = []
+        final_cell_forward = []
+        for i in range(batch_size):
+            final_forward.append(output_forward_hyper[i, -1,:])
+            final_cell_forward.append(output_cell_forward[i, -1,:])
+
+        final_forward = torch.stack(final_forward, dim=0)
+        final_cell_forward = torch.stack(final_cell_forward, dim=0)
+
+        # final_output = torch.cat((output_forward_hyper, output_reverse_hyper), dim=2)
+        final_output = output_forward_hyper
+        return final_output.permute(1,0,2), (final_forward.unsqueeze(dim=0), final_cell_forward.unsqueeze(dim=0))
+
+
+    def forward(self,
+                x,
+                hidden=None,
+                src_encodings=None,
+                src_lengths=None,
+                batch_lang=None,
+                tgt=None):
+        """
+        Args:
+            x: decoder input (length, batch_size)
+            decoder_hidden : decoder hidden state
+            src_encodings : encoder states (src_length, batch_size, hidden_size)
+            src_lengths: corresponding lengths of source encoder
+            tgt : target output tensor (length, batch_size)
+        """
+        if tgt is None:
+            tgt_length = 1
+        else:
+            tgt_length, _ = tgt.shape
+
+        # Feed ground truth for now
+        h2o = self.h2o_map[batch_lang[0]]
+        embed_x = self.vocab_embed[batch_lang[0]](x)
+
+        batch_lang = torch.LongTensor([self.tgt_lang_map[lang] for lang in batch_lang])
+        if self.use_cuda:
+            batch_lang = batch_lang.cuda()
+
+        embed_lang = self.lang_embed(batch_lang)
+
+
+        # rnn_output: (tgt_length, batch_size, hidden_size)
+        hidden = [h.contiguous() for h in hidden]
+
+        # HYPER = False
+        HYPER = True
+        if HYPER:
+            rnn_output, hidden = self.hyper_rnn_forward(embed_x, embed_lang, hidden)
+        else:
+            rnn_output, hidden = self.rnn.forward(embed_x, hidden)
+
+        # foo
+        # attn_weights: (src_length, tgt_length, batch_size, hidden_size)
+        # src_encodings: (src_length, batch_size, hidden_size)
+        context = self.attn.forward(rnn_output, src_encodings, src_lengths)
+        concat = torch.cat([context, rnn_output], dim=-1)
+
+        # attentional layer
+        attn_hidden_state = torch.tanh(
+            self.c2h(F.dropout(concat, self.dropout_rate)))
+
+        # output logits
+        output = h2o(F.dropout(attn_hidden_state, self.dropout_rate))
+        # output = self.h2o(F.dropout(attn_hidden_state, self.dropout_rate))
+        return output, hidden
 
 class CPG(nn.Module):
     """
     Contextual Parameter Generator for Domain Adaptation
-    Generators weights for Encoder LSTM and Decoder LSTM 
+    Generators weights for Encoder LSTM and Decoder LSTM
     """
 
     def __init__(self, opt):
@@ -37,7 +367,7 @@ class CPG(nn.Module):
     def forward(self, d):
         """
         Generates parameters(theta) for encoder, attention and decoder
-        Weights are generated for a single batch, therefore all the data 
+        Weights are generated for a single batch, therefore all the data
         in the batch should be in the same domain
         """
         assert d.dim() == 1
@@ -60,7 +390,17 @@ class Encoder(nn.Module):
         self.dropout_rate = opt["dropout_rate"]
         self.bidirectional = opt["bidirectional"]
 
+        self.vocab = opt["vocab"].src
+        # self.num_src_codes = len(self.vocab)
         # Build n
+
+        self.word_embeddings = {}
+        for key, vals in self.vocab.items():
+            self.word_embeddings
+            code = key
+            vocab_size = len(vals)
+            self.word_embeddings[code] = nn.Embedding(vocab_size, self.embed_size)
+
         self.embed = nn.Embedding(self.num_embeddings, self.embed_size)
 
         self.rnn = nn.LSTM(
@@ -104,6 +444,7 @@ class Encoder(nn.Module):
         assert ptr == W_flat.shape[0]
 
     def forward(self, x, lengths, hidden=None):
+        # embed = self.word_embeddings[]
         embed_x = self.embed(x)
         packed_embed_x = pack_padded_sequence(embed_x, lengths)
         # hidden should corresponding to the hidden state at lengths
