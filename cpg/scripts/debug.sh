@@ -18,6 +18,7 @@ valid_niter=2400
 echo batch_size ${batch_size}
 /remote/bones/user/dspokoyn/anaconda3/bin/python3.7 cpg_skeleton.py \
     train \
+    --cuda \
     --vocab ${vocab} \
     --train-src ${train_src_list} \
     --train-tgt ${train_tgt_list} \
@@ -36,7 +37,7 @@ echo batch_size ${batch_size}
     --clip-grad 5.0 \
     --lr-decay 0.5 \
     --bidirectional  \
-    --cuda \
+
 
 #>${work_dir}/err.log
 

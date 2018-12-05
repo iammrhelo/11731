@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
+
 def lstm_cell(input, hidden, w_ih, w_hh, b_ih, b_hh):
     # type: (Tensor, Tuple[Tensor, Tensor], Tensor, Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor]
     hx, cx = hidden
@@ -337,7 +338,7 @@ class HyperLuongDecoder(nn.Module):
 class CPG(nn.Module):
     """
     Contextual Parameter Generator for Domain Adaptation
-    Generators weights for Encoder LSTM and Decoder LSTM
+    Generators weights for Encoder LSTM and Decoder LST
     """
 
     def __init__(self, opt):
@@ -401,6 +402,7 @@ class Encoder(nn.Module):
             vocab_size = len(vals)
             self.word_embeddings[code] = nn.Embedding(vocab_size, self.embed_size)
 
+        # Build n
         self.embed = nn.Embedding(self.num_embeddings, self.embed_size)
 
         self.rnn = nn.LSTM(

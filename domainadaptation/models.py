@@ -325,50 +325,35 @@ class HyperLuongDecoder(nn.Module):
         b_ih = self.hyper_b_ih_l0(batch_lang).view(4*self.hidden_size)
         b_hh = self.hyper_b_hh_l0(batch_lang).view(4*self.hidden_size)
 
-        w_ih_reverse = self.hyper_w_ih_l0_reverse(batch_lang).view(4*self.hidden_size, -1)
-        w_hh_reverse = self.hyper_w_hh_l0_reverse(batch_lang).view(4*self.hidden_size, -1)
-        b_ih_reverse = self.hyper_b_ih_l0_reverse(batch_lang).view(4*self.hidden_size)
-        b_hh_reverse = self.hyper_b_hh_l0_reverse(batch_lang).view(4*self.hidden_size)
-
-
         max_seq_len = input.size()[1]
 
         output_forward = []
-        output_reverse = []
 
-        hy_forward, cy_forward = self.h_init, self.c_init
-        hy_reverse, cy_reverse = self.h_init_reverse, self.c_init_reverse
+        # hy_forward, cy_forward = self.h_init, self.c_init
+        hy_forward, cy_forward = init_hidden
         output_cell_forward = []
         for i in range(max_seq_len):
             hy_forward, cy_forward = lstm_cell(input[:,i,:], (hy_forward, cy_forward), w_ih, w_hh, b_ih, b_hh)
 
-            hy_reverse, cy_reverse = lstm_cell(input[:,max_seq_len-i-1,:], (hy_reverse, cy_reverse), w_ih_reverse, w_hh_reverse, b_ih_reverse, b_hh_reverse)
             output_forward.append(hy_forward)
-            output_reverse.append(hy_reverse)
             output_cell_forward.append(cy_forward)
 
         output_forward_hyper = torch.stack(output_forward, dim=1)
-        output_reverse_hyper = torch.stack(output_reverse, dim=1)
 
         output_cell_forward = torch.stack(output_cell_forward, dim=1)
 
 
         final_forward = []
-        final_reverse = []
         final_cell_forward = []
         for i in range(batch_size):
             final_forward.append(output_forward_hyper[i, lengths[i]-1,:])
             final_cell_forward.append(output_cell_forward[i, lengths[i]-1,:])
 
-        #     final_reverse.append(output_reverse_hyper[i, lengths[i]-1,:])
-
         final_forward = torch.stack(final_forward, dim=0)
         final_cell_forward = torch.stack(final_cell_forward, dim=0)
-        # final_reverse = torch.stack(final_reverse, dim=0)
 
-
-        final_output = torch.cat((output_forward_hyper, output_reverse_hyper), dim=2)
-
+        # final_output = torch.cat((output_forward_hyper, output_reverse_hyper), dim=2)
+        fooo
         return final_output.permute(1,0,2), (final_forward.unsqueeze(dim=0), final_cell_forward.unsqueeze(dim=0))
 
 
@@ -395,13 +380,13 @@ class HyperLuongDecoder(nn.Module):
         embed_x = self.embed(x)
         # rnn_output: (tgt_length, batch_size, hidden_size)
         hidden = [h.contiguous() for h in hidden]
-        print(len(hidden))
-        print(hidden[0].size())
-        fooof
-        # HYPER = False
-        HYPER = True
+        # print(len(hidden))
+        # print(hidden[0].size())
+        # fooof
+        HYPER = False
+        # HYPER = True
         if HYPER:
-            output, hidden = self.hyper_rnn_forward(embed_x, lengths, batch_lang)
+            output, hidden = self.hyper_rnn_forward(embed_x, lengths, batch_lang, hidden)
         else:
             rnn_output, hidden = self.rnn.forward(embed_x, hidden)
 

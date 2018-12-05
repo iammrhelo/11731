@@ -94,6 +94,7 @@ class NMT(nn.Module):
         self.mask_attn = opt["mask_attn"]
         self.dropout_rate = opt["dropout_rate"]
         self.vocab = opt["vocab"]
+
         # self.vocab_src = self.vocab.src
         # self.vocab_tgt = self.vocab.tgt
         self.use_cuda = opt["use_cuda"]
@@ -105,8 +106,10 @@ class NMT(nn.Module):
         #    print(lang, len(vocabentry))
         encoder_opt = deepcopy(opt)
         encoder_opt["num_embeddings"] = len(self.vocab.src)
+
         # self.encoder = Encoder(encoder_opt)
         self.encoder = HyperEncoder(encoder_opt)
+
 
         encoder_hidden_size = (int(self.bidirectional)+1) * self.hidden_size
         decoder_hidden_size = self.hidden_size
@@ -116,8 +119,8 @@ class NMT(nn.Module):
 
         decoder_opt = deepcopy(opt)
         decoder_opt["num_embeddings"] = len(self.vocab.tgt)
-        # self.decoder = LuongDecoder(decoder_opt, attn)
         self.decoder = HyperLuongDecoder(decoder_opt, attn)
+
 
         # Evaluation
         # pad_index is 0 for everything
@@ -152,6 +155,7 @@ class NMT(nn.Module):
         src_encodings, src_lengths, decoder_init_state = self.encode(src_sents, src_codes)
         scores = self.decode(
             src_encodings, src_lengths, decoder_init_state, tgt_codes, tgt_sents)
+
         return scores
 
     def sents2tensor(self, sents: List[List[str]], vocab: typing.Any) -> Tensor:
@@ -207,7 +211,6 @@ class NMT(nn.Module):
         """
         # tgt_sents 2 tensor
         # (length, batch_size)
-
         tgt_tensor = self.sents2tensor(tgt_sents, self.vocab.tgt[tgt_codes[0]])
         # Here we feed in the target output for log-likelihood prediction
         # (length, batch_size, classes)
@@ -256,6 +259,7 @@ class NMT(nn.Module):
             # Get information from encoder
             encoder_output, decoder_init_state = self.encoder.forward(
                 src_tensor, src_lengths, [src_code])
+
 
             # Do debugging here
             # src_sent: [ a, b, c, d ]
@@ -322,6 +326,7 @@ class NMT(nn.Module):
             hyp = Hypothesis(value=sent, score=log_score)
             hypotheses.append(hyp)
         return hypotheses
+
 
     def hyper_evaluate_ppl(self, dev_datas: List[typing.Any], batch_size: int = 16):
         """
@@ -397,8 +402,10 @@ class NMT(nn.Module):
             model = torch.load(
                 model_path, map_location=lambda storage, loc: storage)
             model.use_cuda = False
+
         # model.encoder.rnn.flatten_parameters()
         # model.decoder.rnn.flatten_parameters()
+
         return model
 
     def save(self, path: str):
@@ -509,8 +516,7 @@ def train(args: Dict[str, str]):
     while True:
         epoch += 1
 
-        for (src_keywords, src_codes, src_sents), (tgt_keywords, tgt_codes, tgt_sents) in batch_cpg_iter(train_datas, batch_size=train_batch_size, shuffle=True):
-            # print(src_codes, tgt_codes)
+        for (src_keywords, src_codes, src_sents), (tgt_keywords, tgt_codes, tgt_sents) in batch_cpg_iter(train_datas, batch_size=train_batch_size, shuffle=True):=======
             """
             TODO: Pass the data into CPG-NMT
 
@@ -518,11 +524,6 @@ def train(args: Dict[str, str]):
             src_sents = [ kw + sent for kw, code, sent in src_data ]
             tgt_sents = [ kw + [ code ] + sent for kw, code, sent in tgt_data ]
             """
-            # print(src_keywords, src_codes, src_sents)
-            # print(tgt_keywords, tgt_codes, tgt_sents)
-
-            # import pdb
-            # pdb.set_trace()
 
             model.train()
             train_iter += 1
@@ -532,6 +533,7 @@ def train(args: Dict[str, str]):
             optimizer.zero_grad()
             # (batch_size)
             scores = model(src_sents, src_codes, tgt_sents, tgt_codes)
+
             loss = scores.sum()
 
             # Optimizer here
@@ -589,6 +591,7 @@ def train(args: Dict[str, str]):
                 model.eval()
                 # compute dev. ppl and bleu
                 # dev batch size can be a bit larger
+
                 dev_ppl = model.hyper_evaluate_ppl(dev_datas, batch_size=32)
                 valid_metric = -dev_ppl
 
@@ -651,6 +654,7 @@ def beam_search(src_code, tgt_code, model: NMT, test_data_src: List[List[str]], 
         for kew_words, src_code, src_sent in tqdm(test_data_src, desc='Decoding', file=sys.stdout):
             example_hyps = model.beam_search(
                 src_sent, src_code, tgt_code, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step)
+
             hypotheses.append(example_hyps)
     except KeyboardInterrupt:
         print("Keyboard interrupted!")
