@@ -6,7 +6,6 @@ A very basic implementation of neural machine translation
 
 Usage:
     nmt.py train --train-src=<file> --train-tgt=<file> --dev-src=<file> --dev-tgt=<file> --vocab=<file> [options]
-    nmt.py decode [options] MODEL_PATH TEST_SOURCE_FILE OUTPUT_FILE
     nmt.py decode [options] MODEL_PATH TEST_SOURCE_FILE TEST_TARGET_FILE OUTPUT_FILE
 
 Options:
@@ -370,7 +369,7 @@ class NMT(nn.Module):
         torch.save(self, path)
 
 
-def compute_corpus_level_bleu_score(references: List[List[str]], hypotheses: List[Hypothesis]) -> float:
+def compute_corpus_level_bleu_score(references: List[typing.Any], hypotheses: List[Hypothesis]) -> float:
     """
     Given decoding results and reference sentences, compute corpus-level BLEU score
 
@@ -597,13 +596,19 @@ def train(args: Dict[str, str]):
                 gc.collect()
 
 
-def beam_search(model: NMT, test_data_src: List[List[str]], beam_size: int, max_decoding_time_step: int) -> List[List[Hypothesis]]:
+def beam_search(model: NMT, test_data: List[typing.Any], beam_size: int, max_decoding_time_step: int) -> List[List[Hypothesis]]:
     was_training = model.training
 
     hypotheses = []
     try:
-        for src_data in tqdm(test_data_src, desc='Decoding', file=sys.stdout):
+        for example in tqdm(test_data, desc='Decoding', file=sys.stdout):
+            src_data, tgt_data = example
+
             src_keyword, src_code, src_sent = src_data
+            tgt_keyword, tgt_code, tgt_sent = tgt_data
+
+            src_sent = [tgt_code] + src_sent
+
             example_hyps = model.beam_search(
                 src_sent, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step)
             hypotheses.append(example_hyps)
@@ -620,23 +625,21 @@ def decode(args: Dict[str, str]):
     corpus-level BLEU score.
     """
     test_data_src = read_iwslt_corpus(args['TEST_SOURCE_FILE'], source='src')
-    if args['TEST_TARGET_FILE']:
-        test_data_tgt = read_iwslt_corpus(
-            args['TEST_TARGET_FILE'], source='tgt')
+    test_data_tgt = read_iwslt_corpus(args['TEST_TARGET_FILE'], source='tgt')
+    test_data = list(zip(test_data_src, test_data_tgt))
 
     print(f"load model from {args['MODEL_PATH']}", file=sys.stderr)
     use_cuda = bool(args['--cuda'])
     model = NMT.load(args['MODEL_PATH'], use_cuda)
     model.eval()
-    hypotheses = beam_search(model, test_data_src,
+    hypotheses = beam_search(model, test_data,
                              beam_size=int(args['--beam-size']),
                              max_decoding_time_step=int(args['--max-decoding-time-step']))
 
-    if args['TEST_TARGET_FILE']:
-        top_hypotheses = [hyps[0] for hyps in hypotheses]
-        bleu_score = compute_corpus_level_bleu_score(
-            test_data_tgt, top_hypotheses)
-        print(f'Corpus BLEU: {bleu_score}', file=sys.stderr)
+    top_hypotheses = [hyps[0] for hyps in hypotheses]
+    bleu_score = compute_corpus_level_bleu_score(
+        test_data_tgt, top_hypotheses)
+    print(f'Corpus BLEU: {bleu_score}', file=sys.stderr)
 
     with open(args['OUTPUT_FILE'], 'w') as f:
         for src_sent, hyps in zip(test_data_src, hypotheses):

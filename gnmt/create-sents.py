@@ -4,6 +4,11 @@ tgt = lang.split('-')[1]
 input_file = '../iwslt2017/normal/test.%s.%s' % (lang, tgt)
 output_file = '../iwslt2017/normal/test.%s.%s.txt' % (lang, tgt)
 
+#lang = 'all'
+#tgt = 'tgt'
+#input_file = '../iwslt2017/data/valid.%s.%s' % (lang, tgt)
+#output_file = '../iwslt2017/data/valid.%s.%s.txt' % (lang, tgt)
+
 fp = open(input_file, 'r')
 wp = open(output_file, 'w')
 

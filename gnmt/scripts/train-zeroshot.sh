@@ -26,7 +26,7 @@ python -u gnmt_skeleton.py \
     --dev-src ${dev_src} \
     --dev-tgt ${dev_tgt} \
     --save-to ${work_dir} \
-    --num-layers 2 \
+    --num-layers 1 \
     --max-epoch 30 \
     --log-every 1000 \
     --valid-niter ${valid_niter} \
