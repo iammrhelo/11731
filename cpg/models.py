@@ -43,6 +43,9 @@ class HyperEncoder(nn.Module):
         # Build n
 
         self.lang_embed = nn.Embedding(self.num_langs, self.lang_embed_size)
+        # print(self.lang_embed.weight.requires_grad)
+        self.lang_embed.weight.requires_grad = False
+        # print(self.lang_embed.weight.requires_grad)
         self.src_lang_map = {}
         self.vocab_embed = {}
         for lang, vocabentry in self.vocab_src.items():
@@ -190,6 +193,7 @@ class HyperLuongDecoder(nn.Module):
         self.use_cuda = opt["use_cuda"]
 
         self.lang_embed = nn.Embedding(self.num_langs, self.lang_embed_size)
+        self.lang_embed.weight.requires_grad = False
         self.tgt_lang_map = {}
         self.vocab_embed = {}
         self.h2o_map = {}

@@ -516,7 +516,7 @@ def train(args: Dict[str, str]):
     while True:
         epoch += 1
 
-        for (src_keywords, src_codes, src_sents), (tgt_keywords, tgt_codes, tgt_sents) in batch_cpg_iter(train_datas, batch_size=train_batch_size, shuffle=True):=======
+        for (src_keywords, src_codes, src_sents), (tgt_keywords, tgt_codes, tgt_sents) in batch_cpg_iter(train_datas, batch_size=train_batch_size, shuffle=True):
             """
             TODO: Pass the data into CPG-NMT
 
