@@ -1,12 +1,12 @@
 #!/bin/sh
 
-vocab="debug/vocab.debug.bin"
-train_src_list="debug/train_src_list.txt"
-train_tgt_list="debug/train_tgt_list.txt"
-dev_src_list="debug/valid_src_list.txt"
-dev_tgt_list="debug/valid_tgt_list.txt"
+vocab="normal/vocab.debug.bin"
+train_src_list="normal/train_src_list.txt"
+train_tgt_list="normal/train_tgt_list.txt"
+dev_src_list="normal/valid_src_list.txt"
+dev_tgt_list="normal/valid_tgt_list.txt"
 
-work_dir="work_dir.debug"
+work_dir="work_dir.normal"
 
 mkdir -p ${work_dir}
 echo save results to ${work_dir}
@@ -40,4 +40,3 @@ echo batch_size ${batch_size}
 
 
 #>${work_dir}/err.log
-
