@@ -37,47 +37,20 @@
   
   <tr>
     <td>de-nl</td>
-    <td></td>
-    <td></td>
+    <td>-</td>
+    <td>-</td>
     <td>16.86</td>
   </tr>
   
   <tr>
     <td>nl-de</td>
-    <td></td>
-    <td></td>
+    <td>-</td>
+    <td>-</td>
     <td>17.89</td>
   </tr>
   
   <tr>
-    <th rowspan="6">ZeroShot 1</th>
-    <td>nl-en</td>
-    <td></td>
-    <td></td>
-    <td>8.18</td>
-  </tr>
-  <tr>
-    <td>en-nl</td>
-    <td></td>
-    <td></td>
-    <td>4.63</td>
-  </tr>
-  
-  <tr>
-    <td>en-de</td>
-    <td></td>
-    <td></td>
-    <td>6.98</td>
-  </tr>
-  
-  <tr>
-    <td>de-en</td>
-    <td></td>
-    <td></td>
-    <td>9.65</td>
-  </tr>
-  
-  <tr>
+    <th rowspan="2">ZeroShot</th>
     <td>de-nl</td>
     <td>12.75</td>
     <td>12.50</td>
@@ -90,6 +63,20 @@
     <td>10.47</td>
     <td>11.45</td>
   </tr>
+   
+  <tr>
+    <th rowspan="2">Stronger ZeroShot</th>
+    <td>de-nl</td>
+    <td>-</td>
+    <td>-</td>
+    <td>  </td>
+  </tr>
   
+  <tr>
+    <td>nl-de</td>
+    <td>-</td>
+    <td>-</td>
+    <td> </td>
+  </tr>
   
 </table>
