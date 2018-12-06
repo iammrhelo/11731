@@ -8,7 +8,7 @@
   </tr>
   
   <tr>
-    <th rowspan="6">Train Combine All</th>
+    <th rowspan="6">Normal Parallel</th>
     <td>nl-en</td>
     <td>26.30</td>
     <td>24.78</td>
@@ -69,14 +69,14 @@
     <td>de-nl</td>
     <td>-</td>
     <td>-</td>
-    <td>  </td>
+    <td>17.22</td>
   </tr>
   
   <tr>
     <td>nl-de</td>
     <td>-</td>
     <td>-</td>
-    <td> </td>
+    <td>17.69</td>
   </tr>
   
 </table>
