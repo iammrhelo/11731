@@ -9,7 +9,7 @@ test_src="normal/test.en-de.de"
 test_tgt="normal/test.en-de.en"
 
 work_dir="work_dir.debug"
-beam_size=5
+beam_size=1
 echo decoding $dev_src ...
 /remote/bones/user/dspokoyn/anaconda3/bin/python3.7 cpg_skeleton.py \
     decode \

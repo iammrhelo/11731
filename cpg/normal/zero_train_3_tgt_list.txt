@@ -1,0 +1,4 @@
+./normal/train.en-de.de
+./normal/train.en-de.en
+./normal/train.de-nl.nl
+./normal/train.de-nl.de

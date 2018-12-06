@@ -1,0 +1,6 @@
+./normal/test.en-de.de
+./normal/test.en-de.en
+./normal/test.de-nl.nl
+./normal/test.de-nl.de
+./normal/test.nl-en.en
+./normal/test.nl-en.nl

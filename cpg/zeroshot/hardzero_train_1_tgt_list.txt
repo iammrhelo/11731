@@ -1,0 +1,4 @@
+./zeroshot/train1.en-de-nl.nl
+./zeroshot/train1.en-de-nl.de
+./zeroshot/train2.en-de-nl.en
+./zeroshot/train2.en-de-nl.nl

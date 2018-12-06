@@ -1,0 +1,2 @@
+./normal/test.de-nl.de
+./normal/test.de-nl.nl

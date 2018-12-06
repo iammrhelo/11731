@@ -1,11 +1,12 @@
 #!/bin/sh
 
-vocab="normal/vocab.normal.bin"
-train_src_list="normal/normal_train_src_list.txt"
-train_tgt_list="normal/normal_train_tgt_list.txt"
-dev_src_list="normal/normal_valid_src_list.txt"
-dev_tgt_list="normal/normal_valid_tgt_list.txt"
-work_dir="work_dir.normal"
+exp_num=1
+vocab="zeroshot/vocab.hardzero_${exp_num}.bin"
+train_src_list="zeroshot/hardzero_train_${exp_num}_src_list.txt"
+train_tgt_list="zeroshot/hardzero_train_${exp_num}_tgt_list.txt"
+dev_src_list="zeroshot/zero_valid_${exp_num}_src_list.txt"
+dev_tgt_list="zeroshot/zero_valid_${exp_num}_tgt_list.txt"
+work_dir="work_dir.hardzero${exp_num}"
 
 mkdir -p ${work_dir}
 echo save results to ${work_dir}
@@ -27,7 +28,7 @@ echo batch_size ${batch_size}
     --dev-tgt ${dev_tgt_list} \
     --save-to ${work_dir} \
     --num-layers 1 \
-    --max-epoch 1 \
+    --max-epoch 10 \
     --valid-niter ${valid_niter} \
     --batch-size ${batch_size} \
     --hidden-size 50 \
@@ -39,5 +40,6 @@ echo batch_size ${batch_size}
     --lr-decay 0.5 \
     --patience 10 \
     --bidirectional  \
+
 
 #>${work_dir}/err.log

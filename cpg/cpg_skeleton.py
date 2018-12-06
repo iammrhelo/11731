@@ -581,73 +581,73 @@ def train(args: Dict[str, str]):
             # if the dev score does not increase after `--patience` iterations, we reload the previously
             # saved best model (and the state of the optimizer), halve the learning rate and continue
             # training. This repeats for up to `--max-num-trial` times.
-            if train_iter % valid_niter == 0:
-                print('epoch %d, iter %d, cum. loss %.2f, cum. ppl %.2f cum. examples %d' % (epoch, train_iter,
-                                                                                             cum_loss / cumulative_examples,
-                                                                                             np.exp(
-                                                                                                 cum_loss / cumulative_tgt_words),
-                                                                                             cumulative_examples), file=sys.stderr)
 
-                cum_loss = cumulative_examples = cumulative_tgt_words = 0.
-                valid_num += 1
+        print('epoch %d, iter %d, cum. loss %.2f, cum. ppl %.2f cum. examples %d' % (epoch, train_iter,
+                                                                                     cum_loss / cumulative_examples,
+                                                                                     np.exp(
+                                                                                         cum_loss / cumulative_tgt_words),
+                                                                                     cumulative_examples), file=sys.stderr)
 
-                print('begin validation ...', file=sys.stderr)
-                model.eval()
-                # compute dev. ppl and bleu
-                # dev batch size can be a bit larger
+        cum_loss = cumulative_examples = cumulative_tgt_words = 0.
+        valid_num += 1
 
-                dev_ppl = model.hyper_evaluate_ppl(dev_datas, batch_size=32)
-                valid_metric = -dev_ppl
+        print('begin validation ...', file=sys.stderr)
+        model.eval()
+        # compute dev. ppl and bleu
+        # dev batch size can be a bit larger
 
-                print('validation: iter %d, dev. ppl %f' %
-                      (train_iter, dev_ppl), file=sys.stderr)
+        dev_ppl = model.hyper_evaluate_ppl(dev_datas, batch_size=32)
+        valid_metric = -dev_ppl
 
-                is_better = len(hist_valid_scores) == 0 or valid_metric > max(
-                    hist_valid_scores)
-                hist_valid_scores.append(valid_metric)
+        print('validation: iter %d, dev. ppl %f' %
+              (train_iter, dev_ppl), file=sys.stderr)
 
-                if is_better:
-                    patience = 0
-                    print(
-                        'save currently the best model to [%s]' % model_save_path, file=sys.stderr)
-                    model.save(model_save_path)
+        is_better = len(hist_valid_scores) == 0 or valid_metric > max(
+            hist_valid_scores)
+        hist_valid_scores.append(valid_metric)
 
-                    # You may also save the optimizer's state
-                    torch.save(optimizer, optim_save_path)
-                elif patience < int(args['--patience']):
-                    patience += 1
-                    print('hit patience %d' % patience, file=sys.stderr)
+        if is_better:
+            patience = 0
+            print(
+                'save currently the best model to [%s]' % model_save_path, file=sys.stderr)
+            model.save(model_save_path)
 
-                    if patience == int(args['--patience']):
-                        num_trial += 1
-                        print('hit #%d trial' % num_trial, file=sys.stderr)
-                        if num_trial == int(args['--max-num-trial']):
-                            print('early stop!', file=sys.stderr)
-                            exit(0)
+            # You may also save the optimizer's state
+            torch.save(optimizer, optim_save_path)
+        elif patience < int(args['--patience']):
+            patience += 1
+            print('hit patience %d' % patience, file=sys.stderr)
 
-                        # decay learning rate, and restore from previously best checkpoint
-                        lr = lr * float(args['--lr-decay'])
-                        print(
-                            'load previously best model and decay learning rate to %f' % lr, file=sys.stderr)
-
-                        # load model`
-                        model = NMT.load(
-                            model_save_path, use_cuda=bool(args["--cuda"]))
-                        print('restore parameters of the optimizers',
-                              file=sys.stderr)
-                        # You may also need to load the state of the optimizer saved before
-                        optimizer = torch.load(optim_save_path)
-                        for param_group in optimizer.param_groups:
-                            param_group['lr'] = lr
-
-                        # reset patience
-                        patience = 0
-
-                if epoch == int(args['--max-epoch']):
-                    print('reached maximum number of epochs!', file=sys.stderr)
+            if patience == int(args['--patience']):
+                num_trial += 1
+                print('hit #%d trial' % num_trial, file=sys.stderr)
+                if num_trial == int(args['--max-num-trial']):
+                    print('early stop!', file=sys.stderr)
                     exit(0)
 
-                gc.collect()
+                # decay learning rate, and restore from previously best checkpoint
+                lr = lr * float(args['--lr-decay'])
+                print(
+                    'load previously best model and decay learning rate to %f' % lr, file=sys.stderr)
+
+                # load model`
+                model = NMT.load(
+                    model_save_path, use_cuda=bool(args["--cuda"]))
+                print('restore parameters of the optimizers',
+                      file=sys.stderr)
+                # You may also need to load the state of the optimizer saved before
+                optimizer = torch.load(optim_save_path)
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] = lr
+
+                # reset patience
+                patience = 0
+
+        if epoch == int(args['--max-epoch']):
+            print('reached maximum number of epochs!', file=sys.stderr)
+            exit(0)
+
+        gc.collect()
 
 
 def beam_search(src_code, tgt_code, model: NMT, test_data_src: List[List[str]], beam_size: int, max_decoding_time_step: int) -> List[List[Hypothesis]]:
@@ -672,34 +672,41 @@ def decode(args: Dict[str, str]):
     If the target gold-standard sentences are given, the function also computes
     corpus-level BLEU score.
     """
-    test_data_src = read_iwslt_corpus(args['TEST_SOURCE_FILE'], source='src')
-    if args['TEST_TARGET_FILE']:
-        test_data_tgt = read_iwslt_corpus(
-            args['TEST_TARGET_FILE'], source='tgt')
+    test_corpus_src = read_list(args['TEST_SOURCE_FILE'])
+    test_corpus_tgt = read_list(args['TEST_TARGET_FILE'])
 
-    src_code = '<2' + args['TEST_SOURCE_FILE'][-2:] + '>'
-    print("src_code", src_code)
-    tgt_code = '<2en>' #TODO HARDCODED
+    for test_src, test_tgt in zip(test_corpus_src, test_corpus_tgt):
+        print(test_src, test_tgt)
 
-    print(f"load model from {args['MODEL_PATH']}", file=sys.stderr)
-    use_cuda = bool(args['--cuda'])
-    model = NMT.load(args['MODEL_PATH'], use_cuda)
-    model.eval()
-    hypotheses = beam_search(src_code, tgt_code, model, test_data_src,
-                             beam_size=int(args['--beam-size']),
-                             max_decoding_time_step=int(args['--max-decoding-time-step']))
+        test_data_src = read_iwslt_corpus(test_src, source='src')
+        if args['TEST_TARGET_FILE']:
+            test_data_tgt = read_iwslt_corpus(
+                test_tgt, source='tgt')
 
-    if args['TEST_TARGET_FILE']:
-        top_hypotheses = [hyps[0] for hyps in hypotheses]
-        bleu_score = compute_corpus_level_bleu_score(
-            test_data_tgt, top_hypotheses)
-        print(f'Corpus BLEU: {bleu_score}', file=sys.stderr)
-    foo
-    with open(args['OUTPUT_FILE'], 'w') as f:
-        for src_sent, hyps in zip(test_data_src, hypotheses):
-            top_hyp = hyps[0]
-            hyp_sent = ' '.join(top_hyp.value)
-            f.write(hyp_sent + '\n')
+        src_code = '<2' + test_src[-2:] + '>'
+        tgt_code = '<2' + test_tgt[-2:] + '>'
+        print("src_code", src_code, tgt_code)
+
+
+        print(f"load model from {args['MODEL_PATH']}", file=sys.stderr)
+        use_cuda = bool(args['--cuda'])
+        model = NMT.load(args['MODEL_PATH'], use_cuda)
+        model.eval()
+        hypotheses = beam_search(src_code, tgt_code, model, test_data_src,
+                                 beam_size=int(args['--beam-size']),
+                                 max_decoding_time_step=int(args['--max-decoding-time-step']))
+
+        if test_tgt:
+            top_hypotheses = [hyps[0] for hyps in hypotheses]
+            bleu_score = compute_corpus_level_bleu_score(
+                test_data_tgt, top_hypotheses)
+            print(f'Corpus BLEU: {bleu_score}', file=sys.stderr)
+
+        with open(args['OUTPUT_FILE'], 'w') as f:
+            for src_sent, hyps in zip(test_data_src, hypotheses):
+                top_hyp = hyps[0]
+                hyp_sent = ' '.join(top_hyp.value)
+                f.write(hyp_sent + '\n')
 
 
 def main():

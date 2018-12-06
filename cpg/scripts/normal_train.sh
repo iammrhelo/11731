@@ -40,4 +40,5 @@ echo batch_size ${batch_size}
     --patience 10 \
     --bidirectional  \
 
+
 #>${work_dir}/err.log
