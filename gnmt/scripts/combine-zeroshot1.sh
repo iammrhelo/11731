@@ -11,8 +11,8 @@ for split in train valid;
 do
     echo $split
     
-    rm $out_dir/$split.$name.src
-    rm $out_dir/$split.$name.tgt
+    rm $out_dir/$split1.$name.src
+    rm $out_dir/$split1.$name.tgt
 
     for ((idx=0; idx<${#train_pairs[@]}; ++idx)); 
     do
@@ -22,8 +22,8 @@ do
         IFS="-" read -ra langs <<< "${pair}";
         echo ${langs[0]} ${langs[1]}
 
-        cat $in_dir/$split.$pair.${langs[0]} $in_dir/$split.$pair.${langs[1]} >> $out_dir/$split.$name.src
-        cat $in_dir/$split.$pair.${langs[1]} $in_dir/$split.$pair.${langs[0]} >> $out_dir/$split.$name.tgt
+        cat $in_dir/$split.$pair.${langs[0]} $in_dir/$split.$pair.${langs[1]} >> $out_dir/$split1.$name.src
+        cat $in_dir/$split.$pair.${langs[1]} $in_dir/$split.$pair.${langs[0]} >> $out_dir/$split1.$name.tgt
     done;
 done;
 
