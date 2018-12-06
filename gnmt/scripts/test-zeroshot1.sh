@@ -3,24 +3,22 @@
 in_dir='../iwslt2017/normal'
 out_dir='../iwslt2017/data'
 
-dev_src=${out_dir}/valid.all.src
-dev_tgt=${out_dir}/valid.all.tgt
-
-work_dir="work_dir-all"
 beam_size=5
 
-lang_pairs=('nl-en' 'en-de' 'de-nl');
+names=('nl-en-de' 'en-de-nl' 'de-nl-en');
+test_pairs=('de-nl' 'nl-en' 'en-de')
 
-for ((idx=0; idx<${#lang_pairs[@]}; ++idx)); 
+for ((idx=0; idx<${#names[@]}; ++idx)); 
 do
-    pair=${lang_pairs[idx]}; 
-    echo processing $pair
-    
-    IFS="-" read -ra langs <<< "${pair}";
+    name=${names[idx]}; 
+    test_name=${test_pairs[idx]};
+
+    work_dir=work_dir-${name}
+    IFS="-" read -ra langs <<< "${test_name}";
     echo ${langs[0]} ${langs[1]}
 
-    test_src=${in_dir}/test.${pair}.${langs[0]}
-    test_tgt=${in_dir}/test.${pair}.${langs[1]}
+    test_src=${in_dir}/test.${test_name}.${langs[0]}
+    test_tgt=${in_dir}/test.${test_name}.${langs[1]}
 
     echo decoding $test_src ...
     python gnmt_skeleton.py \
@@ -32,10 +30,11 @@ do
         ${test_tgt} \
         ${work_dir}/decode.${langs[0]}-${langs[1]}.test.beam$beam_size.txt
 
-    #perl multi-bleu.perl ${test_tgt} < ${work_dir}/decode.${pair}.test.beam$beam_size.txt
+    #perl multi-bleu.perl ${test_tgt} < ${work_dir}/decode.${name}.test.beam$beam_size.txt
 
-    test_src=${in_dir}/test.${pair}.${langs[1]}
-    test_tgt=${in_dir}/test.${pair}.${langs[0]}
+
+    test_src=${in_dir}/test.${test_name}.${langs[1]}
+    test_tgt=${in_dir}/test.${test_name}.${langs[0]}
 
     echo decoding $test_src ...
     python gnmt_skeleton.py \
@@ -47,6 +46,5 @@ do
         ${test_tgt} \
         ${work_dir}/decode.${langs[1]}-${langs[0]}.test.beam$beam_size.txt
 
-    #perl multi-bleu.perl ${test_tgt} < ${work_dir}/decode.${pair}.test.beam$beam_size.txt
+    #perl multi-bleu.perl ${test_tgt} < ${work_dir}/decode.${name}.test.beam$beam_size.txt
 done;
-

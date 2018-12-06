@@ -1,13 +1,13 @@
 #!/bin/sh
 
 name='nl-en-de'
-vocab="../iwslt2017/data/vocab.${name}.bin"
-train_src="../iwslt2017/data/train.${name}.src"
-train_tgt="../iwslt2017/data/train.${name}.tgt"
-dev_src="../iwslt2017/data/valid.${name}.src"
-dev_tgt="../iwslt2017/data/valid.${name}.tgt"
+vocab="../iwslt2017/data/vocab2.${name}.bin"
+train_src="../iwslt2017/data/train2.${name}.src"
+train_tgt="../iwslt2017/data/train2.${name}.tgt"
+dev_src="../iwslt2017/data/valid2.${name}.src"
+dev_tgt="../iwslt2017/data/valid2.${name}.tgt"
 
-work_dir="work_dir-${name}"
+work_dir="work_dir2-${name}"
 
 mkdir -p ${work_dir}
 echo save results to ${work_dir}
