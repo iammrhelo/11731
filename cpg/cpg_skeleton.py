@@ -429,8 +429,11 @@ def compute_corpus_level_bleu_score(references: List[List[str]], hypotheses: Lis
     if references[0][0] == '<s>':
         references = [ref[1:-1] for ref in references]
 
-    bleu_score = corpus_bleu([[ref] for ref in references],
+    bleu_score = corpus_bleu([[ref] for tgt_keywords, tgt_codes, ref in references],
                              [hyp.value for hyp in hypotheses])
+
+    # bleu_score = corpus_bleu([[ref] for ref in references],
+    #                          [hyp.value for hyp in hypotheses])
 
     return bleu_score
 
@@ -524,7 +527,6 @@ def train(args: Dict[str, str]):
             src_sents = [ kw + sent for kw, code, sent in src_data ]
             tgt_sents = [ kw + [ code ] + sent for kw, code, sent in tgt_data ]
             """
-
             model.train()
             train_iter += 1
 
@@ -538,6 +540,8 @@ def train(args: Dict[str, str]):
 
             # Optimizer here
             loss.backward()
+            # for p in model.parameters():
+                # print(p.name, p.size())
             clip_grad_norm_(model.parameters(), clip_grad)
             optimizer.step()
 
@@ -675,7 +679,7 @@ def decode(args: Dict[str, str]):
 
     src_code = '<2' + args['TEST_SOURCE_FILE'][-2:] + '>'
     print("src_code", src_code)
-    tgt_code = '<2en>'
+    tgt_code = '<2en>' #TODO HARDCODED
 
     print(f"load model from {args['MODEL_PATH']}", file=sys.stderr)
     use_cuda = bool(args['--cuda'])
@@ -690,7 +694,7 @@ def decode(args: Dict[str, str]):
         bleu_score = compute_corpus_level_bleu_score(
             test_data_tgt, top_hypotheses)
         print(f'Corpus BLEU: {bleu_score}', file=sys.stderr)
-
+    foo
     with open(args['OUTPUT_FILE'], 'w') as f:
         for src_sent, hyps in zip(test_data_src, hypotheses):
             top_hyp = hyps[0]

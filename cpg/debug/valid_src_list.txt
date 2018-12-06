@@ -1,2 +1,0 @@
-./debug/valid.en-de.en
-./debug/valid.en-de.de

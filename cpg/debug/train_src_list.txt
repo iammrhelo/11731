@@ -1,2 +1,0 @@
-./debug/train.en-de.en
-./debug/train.en-de.de

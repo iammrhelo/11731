@@ -44,15 +44,17 @@ class HyperEncoder(nn.Module):
 
         self.lang_embed = nn.Embedding(self.num_langs, self.lang_embed_size)
         # print(self.lang_embed.weight.requires_grad)
-        self.lang_embed.weight.requires_grad = False
+        # self.lang_embed.weight.requires_grad = False
         # print(self.lang_embed.weight.requires_grad)
         self.src_lang_map = {}
         self.vocab_embed = {}
+        self.vocab_embed_params = nn.ParameterList()
         for lang, vocabentry in self.vocab_src.items():
            num_words = len(vocabentry)
            print(lang, num_words)
            self.src_lang_map[lang] = len(self.src_lang_map)
            self.vocab_embed[lang] = nn.Embedding(num_words, self.embed_size).cuda()
+           self.vocab_embed_params.append(self.vocab_embed[lang].weight)
 
         # self.embed = nn.Embedding(self.num_embeddings, self.embed_size)
 
@@ -193,17 +195,20 @@ class HyperLuongDecoder(nn.Module):
         self.use_cuda = opt["use_cuda"]
 
         self.lang_embed = nn.Embedding(self.num_langs, self.lang_embed_size)
-        self.lang_embed.weight.requires_grad = False
+        # self.lang_embed.weight.requires_grad = False
         self.tgt_lang_map = {}
         self.vocab_embed = {}
         self.h2o_map = {}
 
+        self.vocab_embed_params = nn.ParameterList()
         for lang, vocabentry in self.vocab_tgt.items():
            num_words = len(vocabentry)
            print(lang, num_words)
            self.tgt_lang_map[lang] = len(self.tgt_lang_map)
            self.vocab_embed[lang] = nn.Embedding(num_words, self.embed_size).cuda()
            self.h2o_map[lang] = nn.Linear(self.hidden_size, num_words).cuda()
+           self.vocab_embed_params.append(self.vocab_embed[lang].weight)
+           self.vocab_embed_params.append(self.h2o_map[lang].weight)
 
         # Build layers
         # self.embed = nn.Embedding(self.num_embeddings, self.embed_size)
