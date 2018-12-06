@@ -12,9 +12,7 @@ mkdir -p ${work_dir}
 echo save results to ${work_dir}
 
 batch_size=64
-a=$(wc -l < "${train_src}")
 b=$batch_size
-valid_niter=$((a%b?a/b+1:a/b))
 # valid_niter=20
 
 echo batch_size ${batch_size}

@@ -1,2 +1,2 @@
-./normal/train.nl-en.en
-./normal/train.nl-en.nl
+./normal/test.nl-en.en
+./normal/test.nl-en.nl

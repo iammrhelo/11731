@@ -27,7 +27,7 @@ Options:
     --attn-type=<str>                       type of attention to use [default: Concat]
     --mask-attn=<bool>                      mask src encodings [default: False]
     --clip-grad=<float>                     gradient clipping [default: 5.0]
-    --log-every=<int>                       log every [default: 10]
+    --log-every=<int>                       log every [default: 1000]
     --max-epoch=<int>                       max epoch [default: 30]
     --patience=<int>                        wait for how mtyping.Any iterations to decay learning rate [default: 5]
     --max-num-trial=<int>                   terminate training after how mtyping.Any trials [default: 5]

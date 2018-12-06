@@ -11,9 +11,8 @@ mkdir -p ${work_dir}
 echo save results to ${work_dir}
 
 batch_size=64
-a=$(wc -l < "${train_src}")
 b=$batch_size
-valid_niter=$((a%b?a/b+1:a/b))
+
 # valid_niter=20
 
 echo batch_size ${batch_size}
@@ -27,11 +26,10 @@ echo batch_size ${batch_size}
     --dev-tgt ${dev_tgt_list} \
     --save-to ${work_dir} \
     --num-layers 1 \
-    --max-epoch 1 \
-    --valid-niter ${valid_niter} \
+    --max-epoch 30 \
     --batch-size ${batch_size} \
-    --hidden-size 50 \
-    --embed-size 50 \
+    --hidden-size 256 \
+    --embed-size 256 \
     --lang-embed-size 7 \
     --uniform-init 0.1 \
     --dropout 0.0 \
