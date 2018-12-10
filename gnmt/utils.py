@@ -3,7 +3,7 @@ import xml.etree.ElementTree as ET
 from typing import List
 
 import numpy as np
-
+from tqdm import tqdm
 
 def input_transpose(sents, pad_token):
     """
@@ -34,7 +34,7 @@ def read_corpus(file_path, source):
     return data
 
 
-def batch_iter(data, batch_size, shuffle=False):
+def batch_iter(data, batch_size, shuffle=False, use_keyword=False):
     """
     Given a list of examples, shuffle and slice them into mini-batches
     """
@@ -45,12 +45,24 @@ def batch_iter(data, batch_size, shuffle=False):
     if shuffle:
         np.random.shuffle(index_array)
 
-    for i in range(batch_num):
+    for i in tqdm(range(batch_num)):
         indices = index_array[i * batch_size: (i + 1) * batch_size]
         examples = [data[idx] for idx in indices]
 
+        src_data, tgt_data = list(zip(*examples))
+        src_keywords, src_codes, src_sents = list(zip(*src_data))
+        tgt_keywords, tgt_codes, tgt_sents = list(zip(*tgt_data))
+
+        if use_keyword == False:
+            examples = zip(tgt_codes, src_sents)
+            src_sents = [[example[0]] + example[1] for example in examples]
+        else:
+            examples = zip(tgt_codes, tgt_keywords, src_sents)
+            src_sents = [[example[0]] + example[1] + example[2] for example in examples]
+
         # Sort decreasing by source sentence length
-        examples = sorted(examples, key=lambda e: len(e[0][2]), reverse=True)
+        examples = list(zip(src_sents, tgt_sents))
+        examples = sorted(examples, key=lambda e: len(e[0]), reverse=True)
         src_sents, tgt_sents = list(zip(*examples))
         yield src_sents, tgt_sents
 

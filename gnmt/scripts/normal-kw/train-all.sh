@@ -36,8 +36,8 @@ python -u gnmt_skeleton.py \
     --dropout 0.2 \
     --clip-grad 5.0 \
     --lr-decay 0.5 \
-    --bidirectional  \
     --use-keyword True \
+    --bidirectional
 
 #>${work_dir}/err.log
 
