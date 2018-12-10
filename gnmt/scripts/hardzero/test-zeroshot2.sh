@@ -1,7 +1,7 @@
 #!/bin/sh
 
-in_dir='../iwslt2017/zeroshot'
-out_dir='../iwslt2017/data'
+in_dir='data'
+out_dir='data'
 
 beam_size=5
 
@@ -22,6 +22,7 @@ do
 
     echo decoding $test_src ...
     python gnmt_skeleton.py \
+        --cuda \
         decode \
         --beam-size ${beam_size} \
         --max-decoding-time-step 100 \
@@ -38,6 +39,7 @@ do
 
     echo decoding $test_src ...
     python gnmt_skeleton.py \
+        --cuda \
         decode \
         --beam-size ${beam_size} \
         --max-decoding-time-step 100 \
