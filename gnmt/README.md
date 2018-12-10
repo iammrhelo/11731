@@ -126,7 +126,7 @@
     <td>en-de</td>
     <td>-</td>
     <td>-</td>
-    <td>-</td>
+    <td>7.41</td>
     <td>7.69</td>
   </tr>
   
@@ -134,7 +134,7 @@
     <td>de-en</td>
     <td>-</td>
     <td>-</td>
-    <td>-</td>
+    <td>10.28</td>
     <td>10.48</td>
   </tr>
   
