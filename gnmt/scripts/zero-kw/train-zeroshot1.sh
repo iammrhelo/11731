@@ -1,13 +1,13 @@
 #!/bin/sh
 
 name='nl-en-de'
-vocab="../iwslt2017/data/vocab1.${name}.bin"
-train_src="../iwslt2017/data/train1.${name}.src"
-train_tgt="../iwslt2017/data/train1.${name}.tgt"
-dev_src="../iwslt2017/data/valid1.${name}.src"
-dev_tgt="../iwslt2017/data/valid1.${name}.tgt"
+vocab="data/vocab1.${name}.bin"
+train_src="data/train1.${name}.src"
+train_tgt="data/train1.${name}.tgt"
+dev_src="data/valid.${name}.src"
+dev_tgt="data/valid.${name}.tgt"
 
-work_dir="work_dir1-${name}"
+work_dir="work_dir1-kw-${name}"
 
 mkdir -p ${work_dir}
 echo save results to ${work_dir}
@@ -38,6 +38,7 @@ python -u gnmt_skeleton.py \
     --clip-grad 5.0 \
     --lr-decay 0.5 \
     --bidirectional  \
+    --use-keyword True \
 
 #>${work_dir}/err.log
 
