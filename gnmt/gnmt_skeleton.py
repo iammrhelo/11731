@@ -597,7 +597,7 @@ def beam_search(model: NMT, test_data: List[typing.Any], beam_size: int, max_dec
             src_keyword, src_code, src_sent = src_data
             tgt_keyword, tgt_code, tgt_sent = tgt_data
 
-            if use_keyword == False:
+            if model.use_keyword == False:
                 src_sent = [tgt_code] + src_sent
             else:
                 src_sent = [tgt_code] + tgt_keyword + src_sent
