@@ -134,7 +134,7 @@ class Vocab(object):
         # src_keywords should be equal to target keywords
         assert all(s == t for s, t in zip(src_keywords, tgt_keywords))
 
-        #all_keywords = set(chain(*(src_keywords + tgt_keywords)))
+        all_keywords = set(chain(*(src_keywords + tgt_keywords)))
         all_codes = set(src_code + tgt_code)
 
         print('initialize source vocabulary ..')
@@ -144,10 +144,8 @@ class Vocab(object):
         self.tgt = VocabEntry.from_corpus(tgt_coded_sents, vocab_size, freq_cutoff)
 
         # Add keywords to both source and target
-        #for kw in all_keywords:
-        #    self.src.add(kw)
-        #    self.tgt.add(kw)
-        print(all_codes)
+        for kw in all_keywords:
+            self.src.add(kw)
 
         # Add language codes to both source and target
         for code in all_codes:

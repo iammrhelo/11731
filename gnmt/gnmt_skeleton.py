@@ -92,6 +92,7 @@ class NMT(nn.Module):
         self.dropout_rate = opt["dropout_rate"]
         self.vocab = opt["vocab"]
         self.use_cuda = opt["use_cuda"]
+        self.use_keyword = opt["use_keyword"]
 
         # Build Encoder, Decoder, and Attention
         encoder_opt = deepcopy(opt)
@@ -331,8 +332,12 @@ class NMT(nn.Module):
                 src_keywords, src_codes, src_sents = list(zip(*src_data))
                 tgt_keywords, tgt_codes, tgt_sents = list(zip(*tgt_data))
 
-                examples = zip(tgt_codes, src_sents)
-                src_sents = [[example[0]] + example[1] for example in examples]
+                if self.use_keyword == False:
+                    examples = zip(tgt_codes, src_sents)
+                    src_sents = [[example[0]] + example[1] for example in examples]
+                else:
+                    examples = zip(tgt_codes, tgt_keywords, src_sents)
+                    src_sents = [[example[0]] + example[1] + example[2] for example in examples]
 
                 loss = self.__call__(src_sents, tgt_sents).sum()
                 cum_loss += loss
@@ -427,7 +432,8 @@ def train(args: Dict[str, str]):
         "attn_type": args['--attn-type'],
         "mask_attn": args['--mask-attn'] == "True",
         "vocab": vocab,
-        "use_cuda": bool(args["--cuda"])
+        "use_cuda": bool(args["--cuda"]),
+        "use_keyword": bool(args("use-keyword"))
     }
     if not torch.cuda.is_available():
         model_opt["use_cuda"] = False
@@ -474,8 +480,12 @@ def train(args: Dict[str, str]):
             src_keywords, src_codes, src_sents = list(zip(*src_data))
             tgt_keywords, tgt_codes, tgt_sents = list(zip(*tgt_data))
 
-            examples = zip(tgt_codes, src_sents)
-            src_sents = [[example[0]] + example[1] for example in examples]
+            if model.use_keyword == False:
+                examples = zip(tgt_codes, src_sents)
+                src_sents = [[example[0]] + example[1] for example in examples]
+            else:
+                examples = zip(tgt_codes, tgt_keywords, src_sents)
+                src_sents = [[example[0]] + example[1] + example[2] for example in examples]
 
             model.train()
             train_iter += 1
@@ -607,8 +617,11 @@ def beam_search(model: NMT, test_data: List[typing.Any], beam_size: int, max_dec
             src_keyword, src_code, src_sent = src_data
             tgt_keyword, tgt_code, tgt_sent = tgt_data
 
-            src_sent = [tgt_code] + src_sent
-
+            if use_keyword == False:
+                src_sent = [tgt_code] + src_sent
+            else:
+                src_sent = [tgt_code] + tgt_keyword + src_sent
+            
             example_hyps = model.beam_search(
                 src_sent, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step)
             hypotheses.append(example_hyps)

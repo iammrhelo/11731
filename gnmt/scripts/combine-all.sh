@@ -3,8 +3,8 @@
 #!/bin/bash
 
 lang_pairs=('nl-en' 'en-de' 'de-nl');
-in_dir='../iwslt2017/normal'
-out_dir='../iwslt2017/data'
+in_dir='data'
+out_dir='data'
 
 for split in train valid;
 do
