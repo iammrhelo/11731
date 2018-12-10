@@ -1,7 +1,7 @@
 #!/bin/sh
 
-in_dir='../iwslt2017/normal'
-out_dir='../iwslt2017/data'
+in_dir='data'
+out_dir='data'
 
 beam_size=5
 
@@ -13,7 +13,7 @@ do
     name=${names[idx]}; 
     test_name=${test_pairs[idx]};
 
-    work_dir=work_dir-${name}
+    work_dir=work_dir1-kw-${name}
     IFS="-" read -ra langs <<< "${test_name}";
     echo ${langs[0]} ${langs[1]}
 
@@ -23,6 +23,7 @@ do
     echo decoding $test_src ...
     python gnmt_skeleton.py \
         decode \
+        --cuda \
         --beam-size ${beam_size} \
         --max-decoding-time-step 100 \
         ${work_dir}/model.bin \
@@ -39,6 +40,7 @@ do
     echo decoding $test_src ...
     python gnmt_skeleton.py \
         decode \
+        --cuda \
         --beam-size ${beam_size} \
         --max-decoding-time-step 100 \
         ${work_dir}/model.bin \

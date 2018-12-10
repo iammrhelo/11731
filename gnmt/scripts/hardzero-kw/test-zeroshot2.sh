@@ -3,8 +3,8 @@
 in_dir='data'
 out_dir='data'
 beam_size=5
-names=('nl-en-de');
-test_pairs=('de-nl');
+names=('de-nl-en' 'nl-en-de' 'en-de-nl');
+test_pairs=('en-de' 'de-nl' 'nl-en');
 
 for ((idx=0; idx<${#names[@]}; ++idx)); 
 do

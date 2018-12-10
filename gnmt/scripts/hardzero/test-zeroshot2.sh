@@ -5,8 +5,8 @@ out_dir='data'
 
 beam_size=5
 
-names=('nl-en-de');
-test_pairs=('de-nl')
+names=('de-nl-en' 'nl-en-de' 'en-de-nl');
+test_pairs=('en-de' 'de-nl' 'nl-en');
 
 for ((idx=0; idx<${#names[@]}; ++idx)); 
 do
@@ -17,8 +17,8 @@ do
     IFS="-" read -ra langs <<< "${test_name}";
     echo ${langs[0]} ${langs[1]}
 
-    test_src=${in_dir}/test.en-de-nl.${langs[0]}
-    test_tgt=${in_dir}/test.en-de-nl.${langs[1]}
+    test_src=${in_dir}/test.${langs[0]}-${langs[1]}.${langs[0]}
+    test_tgt=${in_dir}/test.${langs[0]}-${langs[1]}.${langs[1]}
 
     echo decoding $test_src ...
     python gnmt_skeleton.py \
@@ -34,8 +34,8 @@ do
     #perl multi-bleu.perl ${test_tgt} < ${work_dir}/decode.${name}.test.beam$beam_size.txt
 
 
-    test_src=${in_dir}/test.en-de-nl.${langs[1]}
-    test_tgt=${in_dir}/test.en-de-nl.${langs[0]}
+    test_src=${in_dir}/test.${langs[0]}-${langs[1]}.${langs[1]}
+    test_tgt=${in_dir}/test.${langs[0]}-${langs[1]}.${langs[0]}
 
     echo decoding $test_src ...
     python gnmt_skeleton.py \
