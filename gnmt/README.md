@@ -61,7 +61,7 @@
     <td>nl-en</td>
     <td>-</td>
     <td>-</td>
-    <td></td>
+    <td>8.47</td>
     <td>7.77</td>
   </tr>
   
@@ -69,7 +69,7 @@
     <td>en-nl</td>
     <td>-</td>
     <td>-</td>
-    <td>-</td>
+    <td>5.15</td>
     <td>5.63</td>
   </tr>
   
@@ -77,7 +77,7 @@
     <td>en-de</td>
     <td>-</td>
     <td>-</td>
-    <td>-</td>
+    <td>7.59</td>
     <td>7.18</td>
   </tr>
   
@@ -85,7 +85,7 @@
     <td>de-en</td>
     <td>-</td>
     <td>-</td>
-    <td>-</td>
+    <td>9.88</td>
     <td>9.27</td>
   </tr>
   
@@ -93,7 +93,7 @@
     <td>de-nl</td>
     <td>-</td>
     <td>-</td>
-    <td>-</td>
+    <td>4.91</td>
     <td>4.96</td>
   </tr>
   
@@ -101,7 +101,7 @@
     <td>nl-de</td>
     <td>-</td>
     <td>-</td>
-    <td>-</td>
+    <td>5.44</td>
     <td>5.92</td>
   </tr>
   
